@@ -1,46 +1,77 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../supabaseClient'; // Conexión a la base
+import { dbOficial, dbInterna } from '../supabaseClient'; // Conexión a la base dual
 
 export default function CuentasCorrientes({ onLevantarComprobante, volverAlMenu }) {
   const [busqueda, setBusqueda] = useState('');
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
   const [verInterno, setVerInterno] = useState(false); 
-
-  // Arrancamos vacío porque ahora viene de la nube
   const [clientesCtaCte, setClientesCtaCte] = useState([]);
+  const [procesando, setProcesando] = useState(false);
 
-  // === EFECTO DE ARRANQUE: CHUPAR CLIENTES Y MOVIMIENTOS ===
-  useEffect(() => {
-    const cargarCuentas = async () => {
-      // Traemos clientes y movimientos al mismo tiempo
-      const { data: clientesDB } = await supabase.from('clientes').select('*');
-      const { data: movimientosDB } = await supabase.from('movimientos_cc').select('*');
-
-      if (clientesDB && movimientosDB) {
-        // Le metemos a cada cliente su propio historial de movimientos
-        const clientesArmados = clientesDB.map(cliente => ({
-          ...cliente,
-          historial: movimientosDB.filter(mov => mov.cliente_id === cliente.id)
-        }));
-        setClientesCtaCte(clientesArmados);
-      }
-    };
-    cargarCuentas();
-  }, []);
-
+  // Estados de cobro
   const [pagoEfectivo, setPagoEfectivo] = useState('');
   const [pagoTransferencia, setPagoTransferencia] = useState('');
   const [pagoMercadoPago, setPagoMercadoPago] = useState('');
   const [pagoBilletera, setPagoBilletera] = useState('');
 
+  // Estados de cheques
   const [listaCheques, setListaCheques] = useState([]);
   const [datosChequeAux, setDatosChequeAux] = useState({ banco: '', nro: '', vencimiento: '', firmante: '', monto: '' });
   
+  // Estados de comisión
   const [esPagoTercero, setEsPagoTercero] = useState(false);
   const [montoComision, setMontoComision] = useState('');
 
   const colorBordo = '#6B1116';
   const formatoVista = (valor) => "$ " + Math.round(parseFloat(valor) || 0).toLocaleString('es-AR');
+
+  // === EFECTO DE ARRANQUE: CARGAR CLIENTES Y MOVIMIENTOS ===
+  const cargarCuentas = async () => {
+    try {
+      // Traemos clientes y movimientos de la DB Oficial (Blanco)
+      const { data: clientesOficial, error: errCliOfi } = await dbOficial.from('clientes').select('*');
+      const { data: movsOficial, error: errMovOfi } = await dbOficial.from('movimientos_cc').select('*');
+      
+      // Traemos clientes y movimientos de la DB Interna (Negro)
+      const { data: clientesInterna, error: errCliInt } = await dbInterna.from('clientes').select('id, saldo_interno');
+      const { data: movsInterna, error: errMovInt } = await dbInterna.from('movimientos_cc').select('*');
+
+      if (errCliOfi || errMovOfi || errCliInt || errMovInt) {
+          throw new Error("Error obteniendo datos de Supabase");
+      }
+
+      // Fusionamos los datos de ambas bases para el frontend
+      const clientesArmados = clientesOficial.map(clienteOfi => {
+        const matchInterno = clientesInterna.find(ci => ci.id === clienteOfi.id);
+        
+        // Historial combinado de ambas bases (tildado inicial false)
+        const historialCombinado = [
+            ...movsOficial.filter(m => m.cliente_id === clienteOfi.id).map(m => ({...m, fiscal: true, tildado: false})),
+            ...movsInterna.filter(m => m.cliente_id === clienteOfi.id).map(m => ({...m, fiscal: false, tildado: false}))
+        ];
+
+        return {
+          ...clienteOfi,
+          saldo_interno: matchInterno ? matchInterno.saldo_interno : 0,
+          historial: historialCombinado.sort((a, b) => new Date(b.fecha) - new Date(a.fecha)) // Ordenamos más reciente primero
+        };
+      });
+
+      setClientesCtaCte(clientesArmados);
+
+      // Si había un cliente seleccionado, le actualizamos los datos
+      if (clienteSeleccionado) {
+          const actualizado = clientesArmados.find(c => c.id === clienteSeleccionado.id);
+          if (actualizado) setClienteSeleccionado(actualizado);
+      }
+    } catch (error) {
+        alert("Error cargando cuentas: " + error.message);
+    }
+  };
+
+  useEffect(() => {
+    cargarCuentas();
+  }, []); // Se ejecuta una sola vez al montar
 
   const clientesFiltrados = clientesCtaCte.filter(c => 
     c.nombre.toLowerCase().includes(busqueda.toLowerCase()) || (c.cuit && c.cuit.includes(busqueda))
@@ -71,31 +102,33 @@ export default function CuentasCorrientes({ onLevantarComprobante, volverAlMenu 
 
   const eliminarCheque = (id) => setListaCheques(listaCheques.filter(chq => chq.id !== id));
 
+  // --- LEVANTAR REMITO EN NEGRO PARA FACTURARLO EN BLANCO ---
   const procesarLevantarAFacturar = () => {
     const comprobantesTildados = clienteSeleccionado.historial.filter(h => h.tildado);
     if (comprobantesTildados.length === 0) { alert("Tilde primero los remitos internos (X) que desea levantar para facturar."); return; }
 
+    const comprobanteFiscalMezclado = comprobantesTildados.find(h => h.fiscal);
+    if(comprobanteFiscalMezclado) { alert("Solo puede levantar comprobantes en negro para facturar. Desmarque los comprobantes fiscales."); return;}
+
     let articulosAcumulados = [];
-    comprobantesTildados.forEach(comp => { if (comp.articulos && comp.articulos.length > 0) articulosAcumulados = [...articulosAcumulados, ...comp.articulos]; });
+    comprobantesTildados.forEach(comp => { 
+        if (comp.articulos && comp.articulos.length > 0) {
+            articulosAcumulados = [...articulosAcumulados, ...comp.articulos]; 
+        }
+    });
 
     if (articulosAcumulados.length === 0) { alert("Los comprobantes seleccionados no tienen repuestos detallados cargados."); return; }
 
-    const comision = Math.round(parseFloat(montoComision)) || 0;
-    let nuevaBilletera = clienteSeleccionado.saldo_billetera_negro + comision;
-
-    let historialLimpio = clienteSeleccionado.historial.filter(h => !h.tildado);
-    let deudasMataInterno = comprobantesTildados.filter(h => !h.fiscal).reduce((acc, h) => acc + Number(h.monto), 0);
-    let nuevoSaldoInterno = Math.max(0, clienteSeleccionado.saldo_interno - deudasMataInterno);
-
-    setClientesCtaCte(prev => prev.map(c => {
-      if (c.id === clienteSeleccionado.id) return { ...c, saldo_interno: nuevoSaldoInterno, saldo_billetera_negro: nuevaBilletera, historial: historialLimpio };
-      return c;
-    }));
-
+    // No escribimos a la base acá. Solo pasamos los artículos al Mostrador para que los facture.
+    // La deuda interna se debe saldar con un "Cobro Combinado" o el mostrador debe anular el remito viejo.
     onLevantarComprobante(articulosAcumulados);
   };
 
-  const ejecutarCobroCombinado = () => {
+
+  // --- COBRO COMBINADO USANDO RPC ---
+  const ejecutarCobroCombinado = async () => {
+    if (!clienteSeleccionado) return;
+
     const efe = Math.round(parseFloat(pagoEfectivo)) || 0;
     const trans = Math.round(parseFloat(pagoTransferencia)) || 0;
     const mp = Math.round(parseFloat(pagoMercadoPago)) || 0;
@@ -108,27 +141,64 @@ export default function CuentasCorrientes({ onLevantarComprobante, volverAlMenu 
     if (bill > clienteSeleccionado.saldo_billetera_negro) { alert("Saldo insuficiente en Billetera Virtual para aplicar ese cobro."); return; }
     if (sumaTildada <= 0) { alert("Tilde en la tabla superior qué facturas se están pagando con este dinero."); return; }
 
-    let remanenteSobrante = 0;
-    if (totalIngresado > sumaTildada) remanenteSobrante = totalIngresado - sumaTildada;
+    setProcesando(true);
 
-    let nuevaBilletera = clienteSeleccionado.saldo_billetera_negro - bill + remanenteSobrante + comision;
+    try {
+        let remanenteSobrante = 0;
+        if (totalIngresado > sumaTildada) remanenteSobrante = totalIngresado - sumaTildada;
 
-    let deudasMataFiscal = clienteSeleccionado.historial.filter(h => h.tildado && h.fiscal).reduce((acc, h) => acc + Number(h.monto), 0);
-    let deudasMataInterno = clienteSeleccionado.historial.filter(h => h.tildado && !h.fiscal).reduce((acc, h) => acc + Number(h.monto), 0);
+        // Billetera = Remanente S a favor + comision de tercero - lo que usó de la billetera actual
+        const ajusteBilleteraTotal = remanenteSobrante + comision - bill;
 
-    let nuevoSaldoFiscal = Math.max(0, clienteSeleccionado.saldo_fiscal - deudasMataFiscal);
-    let nuevoSaldoInterno = Math.max(0, clienteSeleccionado.saldo_interno - deudasMataInterno);
-    let nuevoHistorial = clienteSeleccionado.historial.filter(h => !h.tildado);
+        let deudasMataFiscal = clienteSeleccionado.historial.filter(h => h.tildado && h.fiscal).reduce((acc, h) => acc + Number(h.monto), 0);
+        let deudasMataInterno = clienteSeleccionado.historial.filter(h => h.tildado && !h.fiscal).reduce((acc, h) => acc + Number(h.monto), 0);
 
-    setClientesCtaCte(prev => prev.map(c => {
-      if (c.id === clienteSeleccionado.id) return { ...c, saldo_fiscal: nuevoSaldoFiscal, saldo_interno: nuevoSaldoInterno, saldo_billetera_negro: nuevaBilletera, historial: nuevoHistorial };
-      return c;
-    }));
+        // Si el total ingresado no cubre toda la deuda tildada, prorrateamos o tiramos error?
+        // Asumimos que si tildó, paga exacto lo tildado o le sobra (remanente). Si le falta, frena.
+        if (totalIngresado < sumaTildada) {
+            throw new Error(`Falta dinero. Total tildado: $${sumaTildada} | Ingresado: $${totalIngresado}. No se admiten pagos parciales de comprobantes, pague el total exacto.`);
+        }
 
-    setClienteSeleccionado({ ...clienteSeleccionado, saldo_fiscal: nuevoSaldoFiscal, saldo_interno: nuevoSaldoInterno, saldo_billetera_negro: nuevaBilletera, historial: nuevoHistorial });
+        const idsPagadosOficial = clienteSeleccionado.historial.filter(h => h.tildado && h.fiscal).map(h => h.id);
+        const idsPagadosInterno = clienteSeleccionado.historial.filter(h => h.tildado && !h.fiscal).map(h => h.id);
 
-    setPagoEfectivo(''); setPagoTransferencia(''); setPagoMercadoPago(''); setPagoBilletera(''); setMontoComision(''); setListaCheques([]);
-    alert(`¡Cobro Combinado Procesado!\n* Deuda liquidada.\n* Comisión e importes remanentes asentados en la billetera.`);
+        // 1. Pegamos en la base Oficial vía RPC
+        const { error: errorOficial } = await dbOficial.rpc('cobrar_oficial', {
+            p_cliente_id: clienteSeleccionado.id,
+            p_pago_fiscal: deudasMataFiscal, 
+            p_ajuste_billetera: ajusteBilleteraTotal
+        });
+        if (errorOficial) throw new Error("Fallo en Base Oficial (RPC): " + errorOficial.message);
+
+        // 2. Pegamos en la base Interna vía RPC
+        const { error: errorInterna } = await dbInterna.rpc('cobrar_interna', {
+            p_cliente_id: clienteSeleccionado.id,
+            p_pago_interno: deudasMataInterno
+        });
+        if (errorInterna) throw new Error("Fallo en Base Parda (RPC): " + errorInterna.message);
+
+        // 3. Borramos (o marcamos como pagados) los movimientos.
+        // Asumo que tu intención es eliminarlos del listado pendiente
+        if (idsPagadosOficial.length > 0) {
+             await dbOficial.from('movimientos_cc').delete().in('id', idsPagadosOficial);
+        }
+        if (idsPagadosInterno.length > 0) {
+            await dbInterna.from('movimientos_cc').delete().in('id', idsPagadosInterno);
+        }
+
+        // Limpieza de inputs UI
+        setPagoEfectivo(''); setPagoTransferencia(''); setPagoMercadoPago(''); setPagoBilletera(''); setMontoComision(''); setListaCheques([]); setEsPagoTercero(false);
+        
+        alert(`¡Cobro Combinado Procesado!\n* Deuda liquidada en bases de datos.\n* Comisión e importes remanentes asentados en la billetera.`);
+
+        // Refrescamos toda la info desde las bases de datos para garantizar consistencia total
+        await cargarCuentas();
+
+    } catch (error) {
+        alert(error.message);
+    } finally {
+        setProcesando(false);
+    }
   };
 
   return (
@@ -143,7 +213,7 @@ export default function CuentasCorrientes({ onLevantarComprobante, volverAlMenu 
             <input className="form-check-input" type="checkbox" checked={verInterno} onChange={() => setVerInterno(!verInterno)} style={{cursor:'pointer'}} />
             <label className="form-check-label small fw-bold text-secondary" style={{cursor:'pointer'}}>Ver Operaciones Ocultas (En Negro)</label>
           </div>
-          <button className="btn btn-sm btn-outline-secondary fw-bold" onClick={volverAlMenu}>Volver al Menú</button>
+          <button className="btn btn-sm btn-outline-secondary fw-bold" onClick={volverAlMenu} disabled={procesando}>Volver al Menú</button>
         </div>
       </div>
 
@@ -152,11 +222,15 @@ export default function CuentasCorrientes({ onLevantarComprobante, volverAlMenu 
           <input type="text" className="form-control form-control-sm mb-3 shadow-sm" placeholder="🔍 CUIT o Nombre..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
           <div className="list-group border rounded overflow-auto" style={{maxHeight:'75vh'}}>
             {clientesFiltrados.map(c => (
-              <button key={c.id} onClick={() => setClienteSeleccionado(c)} className="list-group-item list-group-item-action p-2 text-start">
-                <div className="fw-bold small text-dark">{c.nombre}</div>
+              <button key={c.id} onClick={() => setClienteSeleccionado(c)} className={`list-group-item list-group-item-action p-2 text-start ${clienteSeleccionado?.id === c.id ? 'active' : ''}`}>
+                <div className={`fw-bold small ${clienteSeleccionado?.id === c.id ? 'text-white' : 'text-dark'}`}>{c.nombre}</div>
                 <div className="d-flex justify-content-between mt-1">
-                  <span className="text-muted small">Deuda: {formatoVista(Number(c.saldo_fiscal) + (verInterno ? Number(c.saldo_interno) : 0))}</span>
-                  {verInterno && <span className="text-success fw-bold small">Cta: {formatoVista(c.saldo_billetera_negro)}</span>}
+                  <span className={`small ${clienteSeleccionado?.id === c.id ? 'text-light' : 'text-muted'}`}>
+                      Deuda: {formatoVista(Number(c.saldo_fiscal) + (verInterno ? Number(c.saldo_interno) : 0))}
+                  </span>
+                  {verInterno && <span className={`fw-bold small ${clienteSeleccionado?.id === c.id ? 'text-white' : 'text-success'}`}>
+                      Cta: {formatoVista(c.saldo_billetera_negro)}
+                  </span>}
                 </div>
               </button>
             ))}
@@ -201,14 +275,14 @@ export default function CuentasCorrientes({ onLevantarComprobante, volverAlMenu 
                     </tr>
                   </thead>
                   <tbody>
-                    {clienteSeleccionado.historial
+                    {clienteSeleccionado.historial && clienteSeleccionado.historial
                       .filter(h => verInterno ? true : h.fiscal)
                       .map((h) => (
                       <tr key={h.id} onClick={() => toggleTilde(h.id)} style={{cursor:'pointer', backgroundColor: h.tildado ? '#19875412' : ''}}>
                         <td className="text-center"><input type="checkbox" checked={h.tildado} onChange={() => {}} style={{cursor:'pointer'}} /></td>
                         <td className="text-muted font-monospace">{h.fecha}</td>
-                        <td className="fw-bold font-monospace text-primary">{h.nro}</td>
-                        <td className="text-secondary">{h.articulos && h.articulos.length > 0 ? h.articulos.map(a => `${a.cantidad}x ${a.desc}`).join(', ') : 'Ficha de deuda global sin artículos'}</td>
+                        <td className="fw-bold font-monospace text-primary">{h.nro} {h.fiscal ? '(AFIP)' : '(Pardo)'}</td>
+                        <td className="text-secondary">{h.articulos && h.articulos.length > 0 ? h.articulos.map(a => `${a.cantidad}x ${a.desc}`).join(', ') : 'Ficha de deuda sin detalle'}</td>
                         <td className="text-end fw-bold font-monospace pe-3 text-dark">{formatoVista(h.monto)}</td>
                       </tr>
                     ))}
@@ -273,8 +347,10 @@ export default function CuentasCorrientes({ onLevantarComprobante, volverAlMenu 
                     <span className="small text-muted d-block">Suma total de deudas tildadas: <strong className="text-danger fs-5 font-monospace">{formatoVista(sumaTildada)}</strong></span>
                   </div>
                   <div className="d-flex gap-2">
-                    <button className="btn btn-dark fw-bold px-4 shadow-sm" onClick={procesarLevantarAFacturar}>🚀 LEVANTAR PARA FACTURAR OFICIAL</button>
-                    <button className="btn text-white fw-bold px-4 shadow" style={{backgroundColor: colorBordo}} onClick={ejecutarCobroCombinado}>LIQUIDAR COBRO COMBINADO</button>
+                    <button className="btn btn-dark fw-bold px-4 shadow-sm" onClick={procesarLevantarAFacturar} disabled={procesando}>🚀 LEVANTAR PARA FACTURAR OFICIAL</button>
+                    <button className="btn text-white fw-bold px-4 shadow" style={{backgroundColor: colorBordo}} onClick={ejecutarCobroCombinado} disabled={procesando}>
+                        {procesando ? 'Procesando en Nube...' : 'LIQUIDAR COBRO COMBINADO'}
+                    </button>
                   </div>
                 </div>
               </div>

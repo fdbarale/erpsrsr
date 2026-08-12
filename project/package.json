@@ -13,7 +13,8 @@
     "@supabase/supabase-js": "^2.108.2",
     "qz-tray": "^2.2.6",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",
