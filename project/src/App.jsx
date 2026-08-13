@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { dbOficial, dbInterna } from './supabaseClient';
 
 // Imports de los módulos
+import Configuracion from './components/Configuracion';
+import Pedidos from './components/Pedidos';
 import Mostrador from './components/Mostrador';
 import Deposito from './components/Deposito';
 import CuentasCorrientes from './components/CuentasCorrientes';
@@ -111,6 +113,14 @@ function App() {
               <h3 className="mb-2">👥</h3>
               Clientes
             </button>
+            <button className="btn btn-outline-dark p-4 text-center shadow-sm" onClick={() => setVista('pedidos')}>
+              <h3 className="mb-2">📝</h3>
+              Pedidos
+            </button>
+            <button className="btn btn-outline-dark p-4 text-center shadow-sm" onClick={() => setVista('configuracion')}>
+              <h3 className="mb-2">⚙️</h3>
+              Configuración
+            </button>
           </div>
         </>
       )}
@@ -131,10 +141,14 @@ function App() {
           }}
         />
       )}
+
+      {vista === 'configuracion' && <Configuracion volverAlMenu={() => setVista('dashboard')} />}
       
-      {vista === 'deposito' && <Deposito volver={() => setVista('dashboard')} />}
+      {vista === 'deposito' && <Deposito volverAlMenu={() => setVista('dashboard')} />}
       
       {vista === 'clientes' && <CuentasCorrientes volverAlMenu={() => setVista('dashboard')} />}
+
+      {vista === 'pedidos' && <Pedidos volverAlMenu={() => setVista('dashboard')} />}
 
     </div>
   );
