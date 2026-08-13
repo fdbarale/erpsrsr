@@ -185,7 +185,7 @@ export default function Configuracion({ volverAlMenu }) {
                   
                   <div className="alert alert-info shadow-sm border-info bg-white">
                     <h6 className="fw-bold text-primary">💡 Actualización Masiva de Precios</h6>
-                    <p className="small text-muted mb-3">Las listas se importan desde el módulo "Gestión de Stock" > "Carga Masiva (CSV)". El sistema leerá el Costo de esa lista y le aplicará automáticamente los márgenes configurados arriba para calcular el Precio Público final.</p>
+                    <p className="small text-muted mb-3">Las listas se importan desde el módulo "Gestión de Stock" &gt; "Carga Masiva (CSV)". El sistema leerá el Costo de esa lista y le aplicará automáticamente los márgenes configurados arriba para calcular el Precio Público final.</p>
                   </div>
                 </div>
               )}

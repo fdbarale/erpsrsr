@@ -3,13 +3,14 @@ import { dbOficial, dbInterna } from './supabaseClient';
 
 // Imports de los módulos
 import FacturacionModal from './components/FacturacionModal';
+import GestionStock from './components/GestionStock';
 import Configuracion from './components/Configuracion';
 import Contabilidad from './components/Contabilidad';
 import Pedidos from './components/Pedidos';
 import Mostrador from './components/Mostrador';
 import Deposito from './components/Deposito';
 import CuentasCorrientes from './components/CuentasCorrientes';
-// import GestionStock from './components/GestionStock';
+import HistorialComprobantes from './components/HistorialComprobantes'; // ACÁ FALTABA ESTO
 
 function App() {
   // Estados de autenticación
@@ -127,6 +128,14 @@ function App() {
               <h3 className="mb-2">📊</h3>
               Contabilidad
             </button>
+            <button className="btn btn-outline-dark p-4 text-center shadow-sm" onClick={() => setVista('stock')}>
+               <h3 className="mb-2">📋</h3>
+               Gestión de<br/>Stock
+            </button>
+            <button className="btn btn-outline-dark p-4 text-center shadow-sm" onClick={() => setVista('comprobantes')}>
+                 <h3 className="mb-2">🧾</h3>
+                  Comprobantes<br/>y Notas de C.
+            </button>
           </div>
         </>
       )}
@@ -142,8 +151,8 @@ function App() {
           desactivarFacturacionInicial={() => setAbrirFacturacion(false)}
           volverAlMenu={() => setVista('dashboard')}
           procesarVenta={(carritoFacturar) => {
-          setCarritoMostrador(carritoFacturar);
-          setAbrirFacturacion(true);
+            setCarritoMostrador(carritoFacturar);
+            setAbrirFacturacion(true);
           }}
         />
       )}
@@ -156,19 +165,23 @@ function App() {
 
       {vista === 'pedidos' && <Pedidos volverAlMenu={() => setVista('dashboard')} />}
 
-      {vista === 'contabilidad' && <Contabilidad volverAlMenu={() => setVista('dashboard')} />}  
+      {vista === 'contabilidad' && <Contabilidad volverAlMenu={() => setVista('dashboard')} />} 
 
+      {vista === 'stock' && <GestionStock volverAlMenu={() => setVista('dashboard')} />}
+
+      {vista === 'comprobantes' && <HistorialComprobantes volverAlMenu={() => setVista('dashboard')} />}
+      
       {abrirFacturacion && (
-  <FacturacionModal 
-    carrito={carritoMostrador}
-    totalCarrito={carritoMostrador.reduce((acc, item) => acc + (item.cantidad * item.precio), 0)}
-    cerrar={() => setAbrirFacturacion(false)}
-    vaciarYConfirmar={() => {
-      setCarritoMostrador([]);
-      setAbrirFacturacion(false);
-    }}
-    />
-  )}
+        <FacturacionModal 
+          carrito={carritoMostrador}
+          totalCarrito={carritoMostrador.reduce((acc, item) => acc + (item.cantidad * item.precio), 0)}
+          cerrar={() => setAbrirFacturacion(false)}
+          vaciarYConfirmar={() => {
+            setCarritoMostrador([]);
+            setAbrirFacturacion(false);
+          }}
+        />
+      )}
     
     </div>
   );
