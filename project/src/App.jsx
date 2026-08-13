@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { dbOficial, dbInterna } from './supabaseClient';
 
 // Imports de los módulos
+import FacturacionModal from './components/FacturacionModal';
 import Configuracion from './components/Configuracion';
+import Contabilidad from './components/Contabilidad';
 import Pedidos from './components/Pedidos';
 import Mostrador from './components/Mostrador';
 import Deposito from './components/Deposito';
@@ -121,6 +123,10 @@ function App() {
               <h3 className="mb-2">⚙️</h3>
               Configuración
             </button>
+            <button className="btn btn-outline-dark p-4 text-center shadow-sm border-danger" onClick={() => setVista('contabilidad')}>
+              <h3 className="mb-2">📊</h3>
+              Contabilidad
+            </button>
           </div>
         </>
       )}
@@ -136,8 +142,8 @@ function App() {
           desactivarFacturacionInicial={() => setAbrirFacturacion(false)}
           volverAlMenu={() => setVista('dashboard')}
           procesarVenta={(carritoFacturar) => {
-             // Dejamos un log temporal hasta que enganchemos el FacturacionModal dual acá
-             console.log("Venta lista para procesar:", carritoFacturar);
+          setCarritoMostrador(carritoFacturar);
+          setAbrirFacturacion(true);
           }}
         />
       )}
@@ -150,6 +156,20 @@ function App() {
 
       {vista === 'pedidos' && <Pedidos volverAlMenu={() => setVista('dashboard')} />}
 
+      {vista === 'contabilidad' && <Contabilidad volverAlMenu={() => setVista('dashboard')} />}  
+
+      {abrirFacturacion && (
+  <FacturacionModal 
+    carrito={carritoMostrador}
+    totalCarrito={carritoMostrador.reduce((acc, item) => acc + (item.cantidad * item.precio), 0)}
+    cerrar={() => setAbrirFacturacion(false)}
+    vaciarYConfirmar={() => {
+      setCarritoMostrador([]);
+      setAbrirFacturacion(false);
+    }}
+    />
+  )}
+    
     </div>
   );
 }
