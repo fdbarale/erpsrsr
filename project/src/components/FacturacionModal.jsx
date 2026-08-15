@@ -116,40 +116,51 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
     try {
       let comprobanteFinal = '';
       let infoFiscal = '';
+      let tipoA_Guardar = 'INTERNO';
 
-      // 1. SI ES FISCAL, LE PEGAMOS A LA EDGE FUNCTION DE AFIP EN SUPABASE
+      // Generamos un REM-X provisorio por si es venta interna
+      const fechaCorta = new Date().toISOString().slice(2, 10).replace(/-/g, '');
+      const aleatorio = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+      let nroA_Guardar = `REM-X ${fechaCorta}-${aleatorio}`;
+
+      // 1. SI ES FISCAL, CONECTAMOS CON AFIP
       if (destinoFiscal === 'FISCAL') {
         console.log("Conectando con AFIP...");
         
         const { data: dataAfip, error: errorAfip } = await dbOficial.functions.invoke('facturacion-afip', {
           body: { 
             total: resumen.totalFiscal, 
-            cliente_doc: "", // Por ahora va vacío (Consumidor final anónimo)
+            cliente_doc: "", 
             cliente_iva: "Consumidor Final" 
           }
         });
 
-        if (errorAfip) throw new Error("Fallo al contactar el servidor fiscal: " + errorAfip.message);
+        if (errorAfip) throw new Error("Fallo al contactar AFIP: " + errorAfip.message);
         if (dataAfip.error) throw new Error("AFIP rechazó la operación:\n" + dataAfip.error);
 
+        // Si AFIP da el OK, pisamos las variables para guardar el dato fiscal
         const letra = dataAfip.tipoComprobante === 1 ? 'A' : 'B';
         const nroFormateado = dataAfip.nroComprobante.toString().padStart(8, '0');
-        comprobanteFinal = `Factura ${letra} 00014-${nroFormateado}`;
+        
+        tipoA_Guardar = 'FISCAL';
+        nroA_Guardar = `Factura ${letra} 00014-${nroFormateado}`;
+        
+        comprobanteFinal = nroA_Guardar;
         infoFiscal = `\nCAE: ${dataAfip.cae}\nVto CAE: ${dataAfip.vtoCae}`;
+      } else {
+        comprobanteFinal = nroA_Guardar;
       }
 
-      // 2. IMPACTAMOS EN BASE DE DATOS LOCAL
-      const { data: nroInterno, error: errorDb } = await dbOficial.rpc('procesar_venta_interna', {
+      // 2. IMPACTAMOS EN BASE DE DATOS LOCAL CON LOS DATOS REALES
+      const { error: errorDb } = await dbOficial.rpc('procesar_venta_interna', {
         p_cliente_id: null,
         p_total: resumen.totalFiscal,
-        p_items: carrito
+        p_items: carrito,
+        p_tipo: tipoA_Guardar,
+        p_nro_comprobante: nroA_Guardar
       });
 
       if (errorDb) throw new Error("Fallo al guardar en base de datos local: " + errorDb.message);
-
-      if (destinoFiscal === 'INTERNO') {
-        comprobanteFinal = nroInterno;
-      }
 
       // 3. ÉXITO Y CIERRE
       try {
