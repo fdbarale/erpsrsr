@@ -114,25 +114,55 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
     setProcesando(true);
 
     try {
-      const { data: nroComprobante, error } = await dbOficial.rpc('procesar_venta_interna', {
+      let comprobanteFinal = '';
+      let infoFiscal = '';
+
+      // 1. SI ES FISCAL, LE PEGAMOS A LA EDGE FUNCTION DE AFIP EN SUPABASE
+      if (destinoFiscal === 'FISCAL') {
+        console.log("Conectando con AFIP...");
+        
+        const { data: dataAfip, error: errorAfip } = await dbOficial.functions.invoke('facturacion-afip', {
+          body: { 
+            total: resumen.totalFiscal, 
+            cliente_doc: "", // Por ahora va vacío (Consumidor final anónimo)
+            cliente_iva: "Consumidor Final" 
+          }
+        });
+
+        if (errorAfip) throw new Error("Fallo al contactar el servidor fiscal: " + errorAfip.message);
+        if (dataAfip.error) throw new Error("AFIP rechazó la operación:\n" + dataAfip.error);
+
+        const letra = dataAfip.tipoComprobante === 1 ? 'A' : 'B';
+        const nroFormateado = dataAfip.nroComprobante.toString().padStart(8, '0');
+        comprobanteFinal = `Factura ${letra} 00014-${nroFormateado}`;
+        infoFiscal = `\nCAE: ${dataAfip.cae}\nVto CAE: ${dataAfip.vtoCae}`;
+      }
+
+      // 2. IMPACTAMOS EN BASE DE DATOS LOCAL
+      const { data: nroInterno, error: errorDb } = await dbOficial.rpc('procesar_venta_interna', {
         p_cliente_id: null,
         p_total: resumen.totalFiscal,
         p_items: carrito
       });
 
-      if (error) throw new Error(error.message);
+      if (errorDb) throw new Error("Fallo al guardar en base de datos local: " + errorDb.message);
 
+      if (destinoFiscal === 'INTERNO') {
+        comprobanteFinal = nroInterno;
+      }
+
+      // 3. ÉXITO Y CIERRE
       try {
-        console.log('Imprimiendo...', { nroComprobante, formatoImpresion, pagos, resumen });
+        console.log('Imprimiendo...', { comprobanteFinal, formatoImpresion, pagos, resumen });
       } catch (printErr) {
         console.warn('Error de hardware ignorado:', printErr);
       }
 
-      alert(`✅ Venta Exitosa.\nComprobante: ${nroComprobante}\nTotal cobrado al cliente: ${formatoMoneda(resumen.totalFisicoCobrado)}`);
+      alert(`✅ Venta Exitosa.\nComprobante: ${comprobanteFinal}${infoFiscal}\nTotal cobrado al cliente: ${formatoMoneda(resumen.totalFisicoCobrado)}`);
       vaciarYConfirmar();
 
     } catch (error) {
-      alert('❌ Error al guardar en base de datos:\n' + error.message);
+      alert('❌ Error en la emisión:\n' + error.message);
       setProcesando(false);
     }
   };
