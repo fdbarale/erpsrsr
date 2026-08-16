@@ -1,8 +1,11 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { dbOficial } from '../supabaseClient';
+import { dbOficial, dbParda } from '../supabaseClient';
 
 export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciarYConfirmar }) {
   const [procesando, setProcesando] = useState(false);
+
+  // === MODO SOMBRA (Controlado por teclado) ===
+  const [modoPardo, setModoPardo] = useState(false);
 
   // === CONFIGURACIÓN DEL NEGOCIO ===
   const CONFIG_MEDIOS = {
@@ -17,15 +20,26 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
     'Cuenta Corriente': { tipo: 'NORMAL', porcentaje: 0 }
   };
 
-  // === ESTADOS DE INTERFAZ ===
-  const [destinoFiscal, setDestinoFiscal] = useState('INTERNO');
   const [formatoImpresion, setFormatoImpresion] = useState('TICKET');
   const [pagos, setPagos] = useState([]);
   const [metodoSeleccionado, setMetodoSeleccionado] = useState('Efectivo');
   const [montoIngresado, setMontoIngresado] = useState('');
 
   const colorBordo = '#6B1116';
-  const colorGris = '#54565b';
+  const colorPardo = '#212529'; 
+
+  // === MOTOR DE ATAJOS DE TECLADO ===
+  useEffect(() => {
+    const escucharTeclado = (e) => {
+      // Si presiona Ctrl + Shift en simultáneo y no está manteniendo la tecla apretada
+      if (e.ctrlKey && e.shiftKey && !e.repeat) {
+        setModoPardo(prev => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', escucharTeclado);
+    return () => window.removeEventListener('keydown', escucharTeclado);
+  }, []);
 
   // === UTILIDADES ===
   const redondear = (valor) => {
@@ -38,7 +52,6 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
     return '$ ' + redondear(valor).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  // === CÁLCULO INDIVIDUAL DE UN PAGO ===
   const calcularPago = (metodo, montoBaseIngresado) => {
     const config = CONFIG_MEDIOS[metodo];
     const base = redondear(montoBaseIngresado);
@@ -60,7 +73,6 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
     return { base, descuento, recargo, fisicoCobrado };
   };
 
-  // === RESUMEN COMPLETO (useMemo optimizado) ===
   const resumen = useMemo(() => {
     const totalLista = redondear(totalCarrito);
     const totalBaseCancelada = redondear(pagos.reduce((acc, p) => acc + p.base, 0));
@@ -76,7 +88,6 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
     return { totalLista, totalBaseCancelada, totalFisicoCobrado, totalDescuentos, totalRecargos, saldoPendiente, estaCuadrado, hayExceso, totalFiscal };
   }, [pagos, totalCarrito]);
 
-  // === AUTOCOMPLETAR SALDO PENDIENTE ===
   useEffect(() => {
     if (resumen.saldoPendiente > 0) {
       setMontoIngresado(resumen.saldoPendiente.toString());
@@ -85,10 +96,8 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
     }
   }, [resumen.saldoPendiente]);
 
-  // === ACCIONES DE PAGO ===
   const agregarPago = () => {
     const base = parseFloat(montoIngresado);
-
     if (!Number.isFinite(base) || base <= 0) return alert('Ingresá un monto válido mayor a cero.');
 
     const calculado = calcularPago(metodoSeleccionado, base);
@@ -105,7 +114,6 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
   const eliminarPago = (id) => setPagos(prev => prev.filter(p => p.id !== id));
   const limpiarPagos = () => setPagos([]);
 
-  // === EMISIÓN ===
   const manejarEmision = async () => {
     if (!carrito || carrito.length === 0) return alert('El carrito está vacío.');
     if (pagos.length === 0) return alert('Debe ingresar al menos un medio de pago.');
@@ -116,53 +124,47 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
     try {
       let comprobanteFinal = '';
       let infoFiscal = '';
-      let tipoA_Guardar = 'INTERNO';
 
-      // Generamos un REM-X provisorio por si es venta interna
-      const fechaCorta = new Date().toISOString().slice(2, 10).replace(/-/g, '');
-      const aleatorio = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-      let nroA_Guardar = `REM-X ${fechaCorta}-${aleatorio}`;
-
-      // 1. SI ES FISCAL, CONECTAMOS CON AFIP
-      if (destinoFiscal === 'FISCAL') {
+      if (!modoPardo) {
         console.log("Conectando con AFIP...");
         
         const { data: dataAfip, error: errorAfip } = await dbOficial.functions.invoke('facturacion-afip', {
-          body: { 
-            total: resumen.totalFiscal, 
-            cliente_doc: "", 
-            cliente_iva: "Consumidor Final" 
-          }
+          body: { total: resumen.totalFiscal, cliente_doc: "", cliente_iva: "Consumidor Final" }
         });
 
         if (errorAfip) throw new Error("Fallo al contactar AFIP: " + errorAfip.message);
         if (dataAfip.error) throw new Error("AFIP rechazó la operación:\n" + dataAfip.error);
 
-        // Si AFIP da el OK, pisamos las variables para guardar el dato fiscal
         const letra = dataAfip.tipoComprobante === 1 ? 'A' : 'B';
         const nroFormateado = dataAfip.nroComprobante.toString().padStart(8, '0');
+        const nroA_Guardar = `Factura ${letra} 00014-${nroFormateado}`;
         
-        tipoA_Guardar = 'FISCAL';
-        nroA_Guardar = `Factura ${letra} 00014-${nroFormateado}`;
-        
+        const { error: errorDb } = await dbOficial.rpc('procesar_venta_interna', {
+          p_cliente_id: null, p_total: resumen.totalFiscal, p_items: carrito, p_tipo: 'FISCAL', p_nro_comprobante: nroA_Guardar
+        });
+
+        if (errorDb) throw new Error("Error al guardar en BD Oficial: " + errorDb.message);
+
         comprobanteFinal = nroA_Guardar;
         infoFiscal = `\nCAE: ${dataAfip.cae}\nVto CAE: ${dataAfip.vtoCae}`;
+
       } else {
+        const fechaCorta = new Date().toISOString().slice(2, 10).replace(/-/g, '');
+        const aleatorio = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+        const nroA_Guardar = `REM-X ${fechaCorta}-${aleatorio}`;
+
+        const { error: errorParda } = await dbParda.rpc('procesar_venta_parda', {
+          p_cliente_id: null, p_total: resumen.totalFiscal, p_items: carrito, p_nro_comprobante: nroA_Guardar
+        });
+
+        if (errorParda) throw new Error("Error al guardar en BD Parda: " + errorParda.message);
+
+        const { error: errorStock } = await dbOficial.rpc('descontar_stock_silencioso', { p_items: carrito });
+        if (errorStock) throw new Error("Error al descontar stock en BD Oficial: " + errorStock.message);
+
         comprobanteFinal = nroA_Guardar;
       }
 
-      // 2. IMPACTAMOS EN BASE DE DATOS LOCAL CON LOS DATOS REALES
-      const { error: errorDb } = await dbOficial.rpc('procesar_venta_interna', {
-        p_cliente_id: null,
-        p_total: resumen.totalFiscal,
-        p_items: carrito,
-        p_tipo: tipoA_Guardar,
-        p_nro_comprobante: nroA_Guardar
-      });
-
-      if (errorDb) throw new Error("Fallo al guardar en base de datos local: " + errorDb.message);
-
-      // 3. ÉXITO Y CIERRE
       try {
         console.log('Imprimiendo...', { comprobanteFinal, formatoImpresion, pagos, resumen });
       } catch (printErr) {
@@ -182,9 +184,15 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
     <div className="position-fixed top-0 start-0 w-100 h-100 bg-dark bg-opacity-75 d-flex justify-content-center align-items-center" style={{ zIndex: 9999 }}>
       <div className="card shadow-lg border-0 d-flex flex-column" style={{ width: '96%', maxWidth: '1450px', height: '92vh', borderRadius: '12px' }}>
         
-        <div className="card-header text-white d-flex justify-content-between align-items-center py-3" style={{ backgroundColor: colorBordo, borderTopLeftRadius: '12px', borderTopRightRadius: '12px' }}>
+        {/* HEADER */}
+        <div 
+          className="card-header text-white d-flex justify-content-between align-items-center py-3" 
+          style={{ backgroundColor: modoPardo ? colorPardo : colorBordo, borderTopLeftRadius: '12px', borderTopRightRadius: '12px', transition: 'background-color 0.2s ease' }}
+        >
           <div>
-            <h4 className="modal-title fw-bold m-0">Cierre de Caja</h4>
+            <h4 className="modal-title fw-bold m-0 user-select-none">
+              {modoPardo ? 'Cierre de Caja (Sombra)' : 'Cierre de Caja Fiscal'}
+            </h4>
           </div>
           <button className="btn-close btn-close-white" onClick={cerrar} disabled={procesando} />
         </div>
@@ -230,15 +238,6 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
                         <button className="btn btn-secondary fw-bold w-100" onClick={agregarPago} disabled={procesando || resumen.estaCuadrado}>Agregar</button>
                       </div>
                     </div>
-
-                    {montoIngresado > 0 && (
-                      <div className="mt-3 p-2 bg-white border rounded small text-center text-muted fw-bold">
-                        {(() => {
-                          const previo = calcularPago(metodoSeleccionado, parseFloat(montoIngresado));
-                          return `El cliente deberá entregar físicamente: ${formatoMoneda(previo.fisicoCobrado)}`;
-                        })()}
-                      </div>
-                    )}
                   </div>
 
                   <div className="flex-grow-1 border rounded bg-white overflow-auto mb-3" style={{ minHeight: '180px' }}>
@@ -266,13 +265,9 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
                             </td>
                           </tr>
                         ))}
-                        {pagos.length === 0 && (
-                          <tr><td colSpan="5" className="text-center text-muted py-4">No hay pagos ingresados.</td></tr>
-                        )}
                       </tbody>
                     </table>
                   </div>
-
                   <div className="d-flex justify-content-between align-items-center">
                     <div className="small fw-bold text-muted">
                       Total Físico en Caja: <span className="text-dark fs-5 font-monospace">{formatoMoneda(resumen.totalFisicoCobrado)}</span>
@@ -283,38 +278,26 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
               </div>
             </div>
 
-            {/* COLUMNA 2 - CLIENTE Y DESTINO */}
+            {/* COLUMNA 2 - CLIENTE */}
             <div className="col-md-3 d-flex flex-column h-100">
               <h6 className="fw-bold text-muted mb-3 text-uppercase small">2. Cliente y Documento</h6>
               <div className="input-group mb-3 shadow-sm">
-                <input type="text" className="form-control" placeholder="CUIT, Razón Social..." />
-                <button className="btn btn-primary">🔍</button>
+                <input type="text" className="form-control" placeholder="Buscar cliente..." disabled />
+                <button className="btn btn-primary" disabled>🔍</button>
               </div>
               <div className="card border-0 shadow-sm p-3 mb-4 bg-white">
-                <div className="small text-muted fw-bold">CLIENTE</div>
-                <div className="fw-bold">Consumidor Final</div>
-              </div>
-
-              <h6 className="fw-bold text-muted mb-2 text-uppercase small">3. Destino Fiscal</h6>
-              <div className="list-group shadow-sm mb-4">
-                <button className={`list-group-item list-group-item-action p-3 fw-bold text-start ${destinoFiscal === 'INTERNO' ? 'active border-secondary' : 'text-secondary'}`} style={destinoFiscal === 'INTERNO' ? { backgroundColor: colorGris, borderColor: colorGris } : {}} onClick={() => setDestinoFiscal('INTERNO')}>Comprobante Interno</button>
-                <button className={`list-group-item list-group-item-action p-3 fw-bold text-start ${destinoFiscal === 'FISCAL' ? 'active' : 'text-primary'}`} onClick={() => setDestinoFiscal('FISCAL')}>Factura Oficial AFIP</button>
+                <div className="small text-muted fw-bold">CLIENTE ACTUAL</div>
+                <div className="fw-bold text-primary">Consumidor Final</div>
               </div>
             </div>
 
             {/* COLUMNA 3 - IMPRESIÓN */}
             <div className="col-md-2 d-flex flex-column h-100">
-              <h6 className="fw-bold text-muted mb-3 text-uppercase small text-center">4. Impresión</h6>
+              <h6 className="fw-bold text-muted mb-3 text-uppercase small text-center">3. Impresión</h6>
               <div className={`card shadow-sm mb-3 ${formatoImpresion === 'TICKET' ? 'border-primary' : 'border-0 opacity-75'}`} style={{ backgroundColor: formatoImpresion === 'TICKET' ? '#eaf4ff' : 'white', cursor: 'pointer', minHeight: '150px' }} onClick={() => setFormatoImpresion('TICKET')}>
                 <div className={`card-body d-flex flex-column align-items-center justify-content-center ${formatoImpresion === 'TICKET' ? 'text-primary' : 'text-muted'}`}>
                   <span className="display-4 mb-2">🧾</span>
                   <span className="fw-bold text-center">Ticket 80mm</span>
-                </div>
-              </div>
-              <div className={`card shadow-sm ${formatoImpresion === 'A4' ? 'border-primary' : 'border-0 opacity-75'}`} style={{ backgroundColor: formatoImpresion === 'A4' ? '#eaf4ff' : 'white', cursor: 'pointer', minHeight: '150px' }} onClick={() => setFormatoImpresion('A4')}>
-                <div className={`card-body d-flex flex-column align-items-center justify-content-center ${formatoImpresion === 'A4' ? 'text-primary' : 'text-muted'}`}>
-                  <span className="display-4 mb-2">📄</span>
-                  <span className="fw-bold text-center">Hoja A4</span>
                 </div>
               </div>
             </div>
@@ -325,16 +308,21 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
         {/* FOOTER */}
         <div className="card-footer bg-white d-flex justify-content-between align-items-center p-4" style={{ borderBottomLeftRadius: '12px', borderBottomRightRadius: '12px' }}>
           <button className="btn btn-outline-secondary fw-bold px-4 py-2" onClick={cerrar} disabled={procesando}>Volver</button>
-          <div className="d-flex align-items-center gap-4">
-            <button 
-              className="btn fw-bold px-5 py-3 shadow text-white" 
-              style={{ backgroundColor: colorBordo, fontSize: '1.15rem', letterSpacing: '1px', opacity: resumen.estaCuadrado ? 1 : 0.5 }} 
-              onClick={manejarEmision} 
-              disabled={procesando || !resumen.estaCuadrado}
-            >
-              {procesando ? 'PROCESANDO...' : 'CONFIRMAR Y EMITIR'}
-            </button>
-          </div>
+          
+          <button 
+            className={`btn fw-bold px-5 py-3 shadow text-white`} 
+            style={{ 
+              backgroundColor: modoPardo ? colorPardo : colorBordo, 
+              fontSize: '1.15rem', 
+              letterSpacing: '1px', 
+              opacity: resumen.estaCuadrado ? 1 : 0.5,
+              transition: 'background-color 0.2s ease, transform 0.1s ease'
+            }} 
+            onClick={manejarEmision} 
+            disabled={procesando || !resumen.estaCuadrado}
+          >
+            {procesando ? 'PROCESANDO...' : (modoPardo ? 'EMITIR REMITO X' : 'FACTURAR EN AFIP')}
+          </button>
         </div>
       </div>
     </div>

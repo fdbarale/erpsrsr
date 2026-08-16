@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { dbOficial, dbInterna } from './supabaseClient';
+import { dbOficial, dbParda } from './supabaseClient';
 
 // Imports de los módulos
 import FacturacionModal from './components/FacturacionModal';

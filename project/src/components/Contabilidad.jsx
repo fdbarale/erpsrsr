@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { dbOficial, dbInterna } from '../supabaseClient';
+import { dbOficial, dbParda } from '../supabaseClient';
 
 export default function Contabilidad({ volverAlMenu }) {
   const [tabActiva, setTabActiva] = useState('tesoreria');
   const [mostrarCompensacion, setMostrarCompensacion] = useState(false);
   const [mostrarGasto, setMostrarGasto] = useState(false);
   const [procesando, setProcesando] = useState(false);
+
+  // === MODO VISTA: OFICIAL -> PARDO -> DUAL ===
+  const [modoVista, setModoVista] = useState('OFICIAL');
 
   // Estados financieros simulados (Acá luego conectaremos los SUM de Supabase)
   const [cajaOficial, setCajaOficial] = useState(4150000);
@@ -15,12 +18,21 @@ export default function Contabilidad({ volverAlMenu }) {
 
   const colorBordo = '#6B1116';
   const colorGris = '#54565b';
+  const colorPardo = '#212529';
 
   const formatoMoneda = (valor) => "$ " + Math.round(parseFloat(valor) || 0).toLocaleString('es-AR');
 
+  // === ACTIVADOR SECRETO ===
+  const toggleModoVista = (e) => {
+    if (e.ctrlKey) {
+      if (modoVista === 'OFICIAL') setModoVista('PARDO');
+      else if (modoVista === 'PARDO') setModoVista('DUAL');
+      else setModoVista('OFICIAL');
+    }
+  };
+
   const ejecutarCompensacion = () => {
     setProcesando(true);
-    // Simulación de delay de red
     setTimeout(() => {
       alert('Transferencia asentada exitosamente.\nLos montos se descontaron del origen y se sumaron al destino en el acto.');
       setProcesando(false);
@@ -37,17 +49,37 @@ export default function Contabilidad({ volverAlMenu }) {
     }, 800);
   };
 
+  // Lógica visual para la barra de navegación
+  const obtenerFondoNav = () => {
+    if (modoVista === 'OFICIAL') return colorBordo;
+    if (modoVista === 'PARDO') return colorPardo;
+    if (modoVista === 'DUAL') return `linear-gradient(90deg, ${colorBordo} 50%, ${colorPardo} 50%)`;
+  };
+
+  const obtenerTituloNav = () => {
+    if (modoVista === 'OFICIAL') return 'Módulo Gerencial y Finanzas';
+    if (modoVista === 'PARDO') return 'Finanzas Internas (Sombra)';
+    if (modoVista === 'DUAL') return 'Finanzas Consolidadas (Dual)';
+  };
+
   return (
     <div className="bg-light min-vh-100 d-flex flex-column" style={{ overflowX: 'hidden' }}>
       
-      {/* NAVEGACIÓN SUPERIOR RESTRINGIDA */}
-      <nav className="navbar navbar-dark shadow-sm px-3" style={{ backgroundColor: '#212529', borderBottom: `4px solid ${colorBordo}` }}>
+      {/* NAVEGACIÓN SUPERIOR RESTRINGIDA Y DINÁMICA */}
+      <nav className="navbar navbar-dark shadow-sm px-3 transition-colors" style={{ background: obtenerFondoNav(), borderBottom: `4px solid ${modoVista !== 'OFICIAL' ? '#000' : colorGris}`, transition: 'background 0.3s ease' }}>
         <div className="container-fluid p-0">
           <div className="d-flex align-items-center">
             <button className="btn btn-sm btn-outline-light me-3 fw-bold" onClick={volverAlMenu} tabIndex="-1">
-              ⬅ Volver al Menú
+              ⬅ Volver
             </button>
-            <span className="navbar-brand fw-bold m-0 tracking-wide">Módulo Gerencial y Finanzas</span>
+            <span 
+              className="navbar-brand fw-bold m-0 tracking-wide cursor-pointer user-select-none" 
+              onClick={toggleModoVista}
+              style={{ cursor: 'pointer' }}
+              title="Cambiar Vista"
+            >
+              {obtenerTituloNav()}
+            </span>
             <span className="badge bg-danger ms-3 fw-bold" style={{ letterSpacing: '1px' }}>🔒 ACCESO RESTRINGIDO</span>
           </div>
           <div className="d-flex text-white align-items-center">
@@ -65,21 +97,21 @@ export default function Contabilidad({ volverAlMenu }) {
               <button 
                 className={`nav-link d-flex justify-content-between align-items-center shadow-sm mb-2 fw-bold ${tabActiva === 'tesoreria' ? 'active' : 'bg-white text-secondary border'}`}
                 onClick={() => setTabActiva('tesoreria')}
-                style={tabActiva === 'tesoreria' ? { backgroundColor: '#212529', color: 'white', borderColor: '#212529' } : {}}
+                style={tabActiva === 'tesoreria' ? { backgroundColor: modoVista === 'OFICIAL' ? colorBordo : colorPardo, color: 'white' } : {}}
               >
                 <span>💵 Cajas y Tesorería</span>
               </button>
               <button 
                 className={`nav-link d-flex justify-content-between align-items-center shadow-sm mb-2 fw-bold ${tabActiva === 'impuestos' ? 'active' : 'bg-white text-secondary border'}`}
                 onClick={() => setTabActiva('impuestos')}
-                style={tabActiva === 'impuestos' ? { backgroundColor: '#212529', color: 'white', borderColor: '#212529' } : {}}
+                style={tabActiva === 'impuestos' ? { backgroundColor: modoVista === 'OFICIAL' ? colorBordo : colorPardo, color: 'white' } : {}}
               >
                 <span>📈 Termómetro Fiscal (IVA)</span>
               </button>
               <button 
                 className={`nav-link d-flex justify-content-between align-items-center shadow-sm mb-2 fw-bold ${tabActiva === 'gastos' ? 'active' : 'bg-white text-secondary border'}`}
                 onClick={() => setTabActiva('gastos')}
-                style={tabActiva === 'gastos' ? { backgroundColor: '#212529', color: 'white', borderColor: '#212529' } : {}}
+                style={tabActiva === 'gastos' ? { backgroundColor: modoVista === 'OFICIAL' ? colorBordo : colorPardo, color: 'white' } : {}}
               >
                 <span>🧾 Egresos y Gastos Fijos</span>
               </button>
@@ -88,7 +120,7 @@ export default function Contabilidad({ volverAlMenu }) {
             <div className="card border-0 shadow-sm mt-4 bg-white">
               <div className="card-body text-center">
                 <h6 className="fw-bold text-muted mb-3 border-bottom pb-2">Cierres Mensuales</h6>
-                <button className="btn btn-outline-primary w-100 mb-2 fw-bold" onClick={() => alert('Generando archivos TXT para el liquidador de AFIP...')}>
+                <button className="btn btn-outline-primary w-100 mb-2 fw-bold" onClick={() => alert('Generando archivos TXT para el liquidador de AFIP...')} disabled={modoVista === 'PARDO'}>
                   📤 Exportar IVA Ventas/Compras
                 </button>
                 <button className="btn btn-outline-dark w-100 fw-bold" onClick={() => alert('Generando reporte en Excel...')}>
@@ -107,77 +139,85 @@ export default function Contabilidad({ volverAlMenu }) {
                 <div>
                   <div className="d-flex justify-content-between align-items-center mb-4">
                     <h4 className="fw-bold text-dark mb-0">Estado de Cajas en Vivo</h4>
-                    <h5 className="fw-bold text-muted mb-0">Total General: <span className="text-dark">{formatoMoneda(cajaOficial + cajaInterna)}</span></h5>
+                    <h5 className="fw-bold text-muted mb-0">Total Mostrado: <span className="text-dark">
+                      {modoVista === 'OFICIAL' ? formatoMoneda(cajaOficial) : modoVista === 'PARDO' ? formatoMoneda(cajaInterna) : formatoMoneda(cajaOficial + cajaInterna)}
+                    </span></h5>
                   </div>
 
-                  <div className="row position-relative mb-4">
+                  <div className="row position-relative mb-4 justify-content-center">
                     
-                    {/* Caja Oficial */}
-                    <div className="col-md-6 mb-3">
-                      <div className="card shadow-sm h-100" style={{ borderRadius: '12px', border: '2px solid #198754' }}>
-                        <div className="card-header p-3" style={{ backgroundColor: '#d1e7dd', color: '#0f5132', borderBottom: '2px solid #198754' }}>
-                          <h5 className="fw-bold mb-0">🏛️ Caja Oficial (Blanco)</h5>
-                        </div>
-                        <div className="card-body bg-white rounded-bottom">
-                          <div className="d-flex justify-content-between mb-2">
-                            <span className="fw-bold text-muted">Efectivo Mostrador:</span>
-                            <span className="fw-bold fs-5 font-monospace text-dark">$ 150.000</span>
+                    {/* Caja Oficial (Visible en OFICIAL y DUAL) */}
+                    {(modoVista === 'OFICIAL' || modoVista === 'DUAL') && (
+                      <div className={`mb-3 ${modoVista === 'DUAL' ? 'col-md-6' : 'col-md-8'}`}>
+                        <div className="card shadow-sm h-100" style={{ borderRadius: '12px', border: '2px solid #198754' }}>
+                          <div className="card-header p-3" style={{ backgroundColor: '#d1e7dd', color: '#0f5132', borderBottom: '2px solid #198754' }}>
+                            <h5 className="fw-bold mb-0">🏛️ Caja Oficial (Blanco)</h5>
                           </div>
-                          <div className="d-flex justify-content-between mb-2">
-                            <span className="fw-bold text-muted">Banco Pampa:</span>
-                            <span className="fw-bold fs-5 font-monospace text-dark">$ 3.200.000</span>
-                          </div>
-                          <div className="d-flex justify-content-between mb-3 border-bottom pb-3">
-                            <span className="fw-bold text-muted">MercadoPago Local:</span>
-                            <span className="fw-bold fs-5 font-monospace text-dark">$ 800.000</span>
-                          </div>
-                          <div className="text-end mt-3">
-                            <span className="text-muted small d-block fw-bold">Subtotal Oficial</span>
-                            <h2 className="fw-bold text-success mb-0 font-monospace">{formatoMoneda(cajaOficial)}</h2>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Caja Interna */}
-                    <div className="col-md-6 mb-3">
-                      <div className="card shadow-sm h-100" style={{ borderRadius: '12px', border: '2px solid #ffc107' }}>
-                        <div className="card-header p-3" style={{ backgroundColor: '#fff3cd', color: '#664d03', borderBottom: '2px solid #ffc107' }}>
-                          <h5 className="fw-bold mb-0">🗄️ Caja Interna (Bóveda)</h5>
-                        </div>
-                        <div className="card-body bg-white rounded-bottom">
-                          <div className="d-flex justify-content-between mb-2">
-                            <span className="fw-bold text-muted">Efectivo Mostrador X:</span>
-                            <span className="fw-bold fs-5 font-monospace text-dark">$ 850.000</span>
-                          </div>
-                          <div className="d-flex justify-content-between mb-2">
-                            <span className="fw-bold text-muted">Fondo Dólares (Convertido):</span>
-                            <span className="fw-bold fs-5 font-monospace text-dark">$ 3.650.000</span>
-                          </div>
-                          <div className="d-flex justify-content-between mb-3 border-bottom pb-3">
-                            <span className="fw-bold text-muted">Cheques Terceros en Cartera:</span>
-                            <span className="fw-bold fs-5 font-monospace text-dark">$ 0</span>
-                          </div>
-                          <div className="text-end mt-3">
-                            <span className="text-muted small d-block fw-bold">Subtotal Interno</span>
-                            <h2 className="fw-bold text-dark mb-0 font-monospace">{formatoMoneda(cajaInterna)}</h2>
+                          <div className="card-body bg-white rounded-bottom">
+                            <div className="d-flex justify-content-between mb-2">
+                              <span className="fw-bold text-muted">Efectivo Mostrador:</span>
+                              <span className="fw-bold fs-5 font-monospace text-dark">$ 150.000</span>
+                            </div>
+                            <div className="d-flex justify-content-between mb-2">
+                              <span className="fw-bold text-muted">Banco Pampa:</span>
+                              <span className="fw-bold fs-5 font-monospace text-dark">$ 3.200.000</span>
+                            </div>
+                            <div className="d-flex justify-content-between mb-3 border-bottom pb-3">
+                              <span className="fw-bold text-muted">MercadoPago Local:</span>
+                              <span className="fw-bold fs-5 font-monospace text-dark">$ 800.000</span>
+                            </div>
+                            <div className="text-end mt-3">
+                              <span className="text-muted small d-block fw-bold">Subtotal Oficial</span>
+                              <h2 className="fw-bold text-success mb-0 font-monospace">{formatoMoneda(cajaOficial)}</h2>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
+                    )}
 
-                    {/* Botón Puente de Cajas */}
-                    <button 
-                      className="btn btn-dark d-flex align-items-center justify-content-center shadow" 
-                      title="Hacer Transferencia / Compensación entre cajas" 
-                      onClick={() => setMostrarCompensacion(true)}
-                      style={{ fontSize: '1.5rem', width: '60px', height: '60px', borderRadius: '50%', border: '3px solid white', zIndex: 10, position: 'absolute', left: '50%', top: '30%', transform: 'translate(-50%, -50%)' }}
-                    >
-                      ⇄
-                    </button>
+                    {/* Caja Interna (Visible en PARDO y DUAL) */}
+                    {(modoVista === 'PARDO' || modoVista === 'DUAL') && (
+                      <div className={`mb-3 ${modoVista === 'DUAL' ? 'col-md-6' : 'col-md-8'}`}>
+                        <div className="card shadow-sm h-100" style={{ borderRadius: '12px', border: '2px solid #ffc107' }}>
+                          <div className="card-header p-3" style={{ backgroundColor: '#fff3cd', color: '#664d03', borderBottom: '2px solid #ffc107' }}>
+                            <h5 className="fw-bold mb-0">🗄️ Caja Interna (Bóveda)</h5>
+                          </div>
+                          <div className="card-body bg-white rounded-bottom">
+                            <div className="d-flex justify-content-between mb-2">
+                              <span className="fw-bold text-muted">Efectivo Mostrador X:</span>
+                              <span className="fw-bold fs-5 font-monospace text-dark">$ 850.000</span>
+                            </div>
+                            <div className="d-flex justify-content-between mb-2">
+                              <span className="fw-bold text-muted">Fondo Dólares (Convertido):</span>
+                              <span className="fw-bold fs-5 font-monospace text-dark">$ 3.650.000</span>
+                            </div>
+                            <div className="d-flex justify-content-between mb-3 border-bottom pb-3">
+                              <span className="fw-bold text-muted">Cheques Terceros en Cartera:</span>
+                              <span className="fw-bold fs-5 font-monospace text-dark">$ 0</span>
+                            </div>
+                            <div className="text-end mt-3">
+                              <span className="text-muted small d-block fw-bold">Subtotal Interno</span>
+                              <h2 className="fw-bold text-dark mb-0 font-monospace">{formatoMoneda(cajaInterna)}</h2>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Botón Puente de Cajas (Solo visible en DUAL) */}
+                    {modoVista === 'DUAL' && (
+                      <button 
+                        className="btn btn-dark d-flex align-items-center justify-content-center shadow" 
+                        title="Hacer Transferencia / Compensación entre cajas" 
+                        onClick={() => setMostrarCompensacion(true)}
+                        style={{ fontSize: '1.5rem', width: '60px', height: '60px', borderRadius: '50%', border: '3px solid white', zIndex: 10, position: 'absolute', left: '50%', top: '30%', transform: 'translate(-50%, -50%)' }}
+                      >
+                        ⇄
+                      </button>
+                    )}
                   </div>
 
-                  <h6 className="fw-bold text-muted mb-3">Últimos Movimientos Consolidados</h6>
+                  <h6 className="fw-bold text-muted mb-3">Últimos Movimientos</h6>
                   <div className="overflow-auto border rounded bg-white shadow-sm" style={{ maxHeight: '40vh' }}>
                     <table className="table table-hover mb-0 align-middle">
                       <thead className="table-light sticky-top">
@@ -190,27 +230,34 @@ export default function Contabilidad({ volverAlMenu }) {
                         </tr>
                       </thead>
                       <tbody>
-                        <tr className="border-bottom">
-                          <td className="text-muted font-monospace ps-3">10:45 hs</td>
-                          <td><span className="badge bg-success">Oficial - Banco</span></td>
-                          <td className="fw-semibold text-secondary">Cobro Fra. A-0001 (Los Amigos)</td>
-                          <td className="text-end fw-bold text-success font-monospace">$ 150.000</td>
-                          <td className="text-end pe-3"></td>
-                        </tr>
-                        <tr className="table-warning border-bottom">
-                          <td className="text-muted font-monospace ps-3">09:30 hs</td>
-                          <td><span className="badge bg-dark">Interna - Efectivo</span></td>
-                          <td className="fw-semibold text-dark">Seña por Encargue (Óptica Amarok)</td>
-                          <td className="text-end fw-bold text-success font-monospace">$ 20.000</td>
-                          <td className="text-end pe-3"></td>
-                        </tr>
-                        <tr>
-                          <td className="text-muted font-monospace ps-3">08:15 hs</td>
-                          <td><span className="badge bg-dark">Interna - Efectivo</span></td>
-                          <td className="fw-semibold text-secondary">Pago Gasto Fijo: Panadería</td>
-                          <td className="text-end"></td>
-                          <td className="text-end fw-bold text-danger font-monospace pe-3">$ 4.500</td>
-                        </tr>
+                        {/* Simulación de filtro visual según el modo */}
+                        {(modoVista === 'OFICIAL' || modoVista === 'DUAL') && (
+                          <tr className="border-bottom">
+                            <td className="text-muted font-monospace ps-3">10:45 hs</td>
+                            <td><span className="badge bg-success">Oficial - Banco</span></td>
+                            <td className="fw-semibold text-secondary">Cobro Fra. A-0001 (Los Amigos)</td>
+                            <td className="text-end fw-bold text-success font-monospace">$ 150.000</td>
+                            <td className="text-end pe-3"></td>
+                          </tr>
+                        )}
+                        {(modoVista === 'PARDO' || modoVista === 'DUAL') && (
+                          <>
+                            <tr className="table-warning border-bottom">
+                              <td className="text-muted font-monospace ps-3">09:30 hs</td>
+                              <td><span className="badge bg-dark">Interna - Efectivo</span></td>
+                              <td className="fw-semibold text-dark">Seña por Encargue (Óptica Amarok)</td>
+                              <td className="text-end fw-bold text-success font-monospace">$ 20.000</td>
+                              <td className="text-end pe-3"></td>
+                            </tr>
+                            <tr>
+                              <td className="text-muted font-monospace ps-3">08:15 hs</td>
+                              <td><span className="badge bg-dark">Interna - Efectivo</span></td>
+                              <td className="fw-semibold text-secondary">Pago Gasto Fijo: Panadería</td>
+                              <td className="text-end"></td>
+                              <td className="text-end fw-bold text-danger font-monospace pe-3">$ 4.500</td>
+                            </tr>
+                          </>
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -220,34 +267,43 @@ export default function Contabilidad({ volverAlMenu }) {
               {/* VISTA 2: TERMÓMETRO FISCAL */}
               {tabActiva === 'impuestos' && (
                 <div>
-                  <div className="d-flex justify-content-between align-items-center mb-4">
-                    <h4 className="fw-bold text-dark mb-0">Posición de IVA Actual (Mes en curso)</h4>
-                    <span className="badge bg-secondary fs-6">Actualizado en tiempo real</span>
-                  </div>
-
-                  <div className="p-4 mb-4 shadow-sm" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)', borderRadius: '12px', borderLeft: '8px solid #0d6efd' }}>
-                    <div className="row align-items-center">
-                      <div className="col-md-4 border-end text-center">
-                        <span className="fw-bold text-muted d-block mb-2 text-uppercase">IVA VENTAS (Débito Fiscal)</span>
-                        <h3 className="text-danger mb-1 font-monospace fw-bold">{formatoMoneda(ivaVentas)}</h3>
-                        <small className="text-muted">Cobrado a clientes</small>
-                      </div>
-                      <div className="col-md-4 border-end text-center">
-                        <span className="fw-bold text-muted d-block mb-2 text-uppercase">IVA COMPRAS (Crédito Fiscal)</span>
-                        <h3 className="text-success mb-1 font-monospace fw-bold">{formatoMoneda(ivaCompras)}</h3>
-                        <small className="text-muted">Pagado a proveedores</small>
-                      </div>
-                      <div className="col-md-4 text-center">
-                        <span className="fw-bold text-dark d-block mb-2 text-uppercase">SALDO TÉCNICO A PAGAR</span>
-                        <h2 className="text-primary fw-bolder mb-1 font-monospace">{formatoMoneda(ivaVentas - ivaCompras)}</h2>
-                      </div>
+                  {modoVista === 'PARDO' ? (
+                    <div className="alert alert-dark text-center mt-5 p-5 shadow-sm">
+                      <h4 className="fw-bold">No aplicable en este modo</h4>
+                      <p className="text-muted">El IVA y las obligaciones fiscales solo se calculan sobre la facturación Oficial. Cambiá la vista con Ctrl+Clic para ver esta sección.</p>
                     </div>
-                  </div>
+                  ) : (
+                    <>
+                      <div className="d-flex justify-content-between align-items-center mb-4">
+                        <h4 className="fw-bold text-dark mb-0">Posición de IVA Actual (Mes en curso)</h4>
+                        <span className="badge bg-secondary fs-6">Actualizado en tiempo real</span>
+                      </div>
 
-                  <div className="alert alert-warning border-warning shadow-sm">
-                    <h6 className="fw-bold mb-2">⚠️ Alerta Fiscal Preventiva (IA)</h6>
-                    <p className="mb-0 small text-dark">El saldo a pagar viene escalando. Sugerencia operativa: Si vas a confirmar el borrador de pedido a <strong>Warnes Repuestos</strong> hoy, exigí Factura A para generar crédito fiscal y achicar la brecha antes del cierre de mes.</p>
-                  </div>
+                      <div className="p-4 mb-4 shadow-sm" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)', borderRadius: '12px', borderLeft: '8px solid #0d6efd' }}>
+                        <div className="row align-items-center">
+                          <div className="col-md-4 border-end text-center">
+                            <span className="fw-bold text-muted d-block mb-2 text-uppercase">IVA VENTAS (Débito Fiscal)</span>
+                            <h3 className="text-danger mb-1 font-monospace fw-bold">{formatoMoneda(ivaVentas)}</h3>
+                            <small className="text-muted">Cobrado a clientes</small>
+                          </div>
+                          <div className="col-md-4 border-end text-center">
+                            <span className="fw-bold text-muted d-block mb-2 text-uppercase">IVA COMPRAS (Crédito Fiscal)</span>
+                            <h3 className="text-success mb-1 font-monospace fw-bold">{formatoMoneda(ivaCompras)}</h3>
+                            <small className="text-muted">Pagado a proveedores</small>
+                          </div>
+                          <div className="col-md-4 text-center">
+                            <span className="fw-bold text-dark d-block mb-2 text-uppercase">SALDO TÉCNICO A PAGAR</span>
+                            <h2 className="text-primary fw-bolder mb-1 font-monospace">{formatoMoneda(ivaVentas - ivaCompras)}</h2>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="alert alert-warning border-warning shadow-sm">
+                        <h6 className="fw-bold mb-2">⚠️ Alerta Fiscal Preventiva (IA)</h6>
+                        <p className="mb-0 small text-dark">El saldo a pagar viene escalando. Sugerencia operativa: Si vas a confirmar el borrador de pedido a <strong>Warnes Repuestos</strong> hoy, exigí Factura A para generar crédito fiscal y achicar la brecha antes del cierre de mes.</p>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -263,7 +319,9 @@ export default function Contabilidad({ volverAlMenu }) {
                     <div className="col-md-4">
                       <div className="card border-0 shadow-sm bg-white p-3 text-center" style={{ borderBottom: '4px solid #0d6efd' }}>
                         <span className="fw-bold text-muted small text-uppercase">Total Operativos (Mes)</span>
-                        <h3 className="fw-bold text-dark mt-2 mb-0 font-monospace">$ 845.000</h3>
+                        <h3 className="fw-bold text-dark mt-2 mb-0 font-monospace">
+                          {modoVista === 'OFICIAL' ? '$ 145.000' : modoVista === 'PARDO' ? '$ 16.500' : '$ 161.500'}
+                        </h3>
                       </div>
                     </div>
                   </div>
@@ -280,27 +338,33 @@ export default function Contabilidad({ volverAlMenu }) {
                         </tr>
                       </thead>
                       <tbody>
-                        <tr className="border-bottom">
-                          <td className="ps-3 font-monospace text-muted small">Hoy, 08:15</td>
-                          <td><span className="badge bg-secondary">Comida / Viáticos</span></td>
-                          <td className="fw-semibold text-dark">Panadería (Facturas desayuno)</td>
-                          <td className="fw-bold text-muted small">Interna - Efvo</td>
-                          <td className="text-end fw-bold text-danger font-monospace pe-3">$ 4.500</td>
-                        </tr>
-                        <tr className="border-bottom">
-                          <td className="ps-3 font-monospace text-muted small">Ayer, 16:30</td>
-                          <td><span className="badge bg-info text-dark">Logística / Fletes</span></td>
-                          <td className="fw-semibold text-dark">Pago Vía Cargo a Macachín</td>
-                          <td className="fw-bold text-muted small">Interna - Efvo</td>
-                          <td className="text-end fw-bold text-danger font-monospace pe-3">$ 12.000</td>
-                        </tr>
-                        <tr>
-                          <td className="ps-3 font-monospace text-muted small">10/08/2026</td>
-                          <td><span className="badge bg-warning text-dark">Servicios Fijos</span></td>
-                          <td className="fw-semibold text-dark">Factura Luz - CPE (Vto)</td>
-                          <td className="fw-bold text-success small">Oficial - Banco</td>
-                          <td className="text-end fw-bold text-danger font-monospace pe-3">$ 145.000</td>
-                        </tr>
+                        {(modoVista === 'PARDO' || modoVista === 'DUAL') && (
+                          <>
+                            <tr className="border-bottom">
+                              <td className="ps-3 font-monospace text-muted small">Hoy, 08:15</td>
+                              <td><span className="badge bg-secondary">Comida / Viáticos</span></td>
+                              <td className="fw-semibold text-dark">Panadería (Facturas desayuno)</td>
+                              <td className="fw-bold text-muted small">Interna - Efvo</td>
+                              <td className="text-end fw-bold text-danger font-monospace pe-3">$ 4.500</td>
+                            </tr>
+                            <tr className="border-bottom">
+                              <td className="ps-3 font-monospace text-muted small">Ayer, 16:30</td>
+                              <td><span className="badge bg-info text-dark">Logística / Fletes</span></td>
+                              <td className="fw-semibold text-dark">Pago Vía Cargo a Macachín</td>
+                              <td className="fw-bold text-muted small">Interna - Efvo</td>
+                              <td className="text-end fw-bold text-danger font-monospace pe-3">$ 12.000</td>
+                            </tr>
+                          </>
+                        )}
+                        {(modoVista === 'OFICIAL' || modoVista === 'DUAL') && (
+                          <tr>
+                            <td className="ps-3 font-monospace text-muted small">10/08/2026</td>
+                            <td><span className="badge bg-warning text-dark">Servicios Fijos</span></td>
+                            <td className="fw-semibold text-dark">Factura Luz - CPE (Vto)</td>
+                            <td className="fw-bold text-success small">Oficial - Banco</td>
+                            <td className="text-end fw-bold text-danger font-monospace pe-3">$ 145.000</td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -402,9 +466,9 @@ export default function Contabilidad({ volverAlMenu }) {
               <div className="mb-2">
                 <label className="form-label fw-bold small text-secondary">¿De qué caja se pagó?</label>
                 <select className="form-select fw-bold border-dark shadow-sm">
-                  <option>Caja Interna (Efectivo Mostrador)</option>
                   <option>Caja Oficial (Transferencia Banco)</option>
                   <option>MercadoPago Local</option>
+                  <option>Caja Interna (Efectivo Mostrador)</option>
                 </select>
               </div>
             </div>
