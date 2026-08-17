@@ -13,7 +13,6 @@ export default function Mostrador({
   abrirFacturacionInicial,
   desactivarFacturacionInicial,
   volverAlMenu,
-  procesarVenta,
 }) {
   const [textoBusqueda, setTextoBusqueda] = useState('');
   const [modoFiltro, setModoFiltro] = useState('LOCAL');
@@ -340,32 +339,36 @@ export default function Mostrador({
   const totalArticulos = carrito.reduce((acum, item) => acum + (Number(item.cantidad) || 0), 0);
   const colorFiltro = modoFiltro === 'LOCAL' ? 'bg-success' : modoFiltro === 'TODOS' ? 'bg-dark' : 'bg-secondary';
 
+  // Función limpiada: Solo vacía carrito y oculta modal
+  const manejarCierreYVaciado = () => {
+    setCarrito([]);
+    setMostrarFacturacion(false);
+    setMostrarPresupuesto(false);
+    setTimeout(() => {
+      buscadorRef.current?.focus();
+    }, 100);
+  };
+
   return (
     <div className="bg-light min-vh-100 d-flex flex-column" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+      
+      {/* MODAL FACTURACIÓN */}
       {mostrarFacturacion && (
         <FacturacionModal
           carrito={carrito}
           totalCarrito={totalVenta}
           cerrar={() => setMostrarFacturacion(false)}
-          vaciarYConfirmar={() => {
-            procesarVenta(carrito);
-            setCarrito([]);
-            setMostrarFacturacion(false);
-            buscadorRef.current?.focus();
-          }}
+          vaciarYConfirmar={manejarCierreYVaciado}
         />
       )}
 
+      {/* MODAL PRESUPUESTO */}
       {mostrarPresupuesto && (
         <PresupuestoModal
           carrito={carrito}
           totalCarrito={totalVenta}
           cerrar={() => setMostrarPresupuesto(false)}
-          vaciarYConfirmar={() => {
-            setCarrito([]);
-            setMostrarPresupuesto(false);
-            buscadorRef.current?.focus();
-          }}
+          vaciarYConfirmar={manejarCierreYVaciado}
         />
       )}
 
