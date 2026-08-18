@@ -4,7 +4,8 @@ import DocumentoImpresion from './DocumentoImpresion';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
-export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciarYConfirmar }) {
+// FIJATE QUE AGREGUÉ usuarioOperador ACÁ ABAJO ↓
+export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciarYConfirmar, usuarioOperador }) {
   const [procesando, setProcesando] = useState(false);
   const [modoPardo, setModoPardo] = useState(false);
   const [comprobanteEmitido, setComprobanteEmitido] = useState(null);
@@ -128,7 +129,6 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
     }, 500);
   };
 
-  // === GENERACIÓN DE PDF Y ENVÍO AUTOMÁTICO ===
   useEffect(() => {
     const despacharCorreoPDF = async () => {
       if (comprobanteEmitido && enviarEmail && emailDestino) {
@@ -136,7 +136,6 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
           const elementoPdf = document.getElementById('render-oculto-a4');
           if (!elementoPdf) return;
           
-          // Generar PDF usando html2canvas y jsPDF
           const canvas = await html2canvas(elementoPdf, { scale: 2, useCORS: true });
           const imgData = canvas.toDataURL('image/jpeg', 0.8);
           const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -145,7 +144,6 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
           pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
           const pdfBase64 = pdf.output('datauristring').split(',')[1];
 
-          // Armar Cuerpo HTML
           const itemsHtml = comprobanteEmitido.items.map(it => `<tr><td style="padding:8px; border-bottom:1px solid #ddd;">${it.cantidad}x ${it.descripcion || it.desc || it.cod}</td><td style="padding:8px; border-bottom:1px solid #ddd; text-align:right;">${formatoMoneda((it.precio_unitario || it.precio) * it.cantidad)}</td></tr>`).join('');
           const htmlCuerpo = `
             <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
@@ -162,7 +160,6 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
               </div>
             </div>`;
 
-          // Disparar envío
           dbOficial.functions.invoke('enviar-correo', { 
             body: { 
               emailDestino, 
@@ -182,9 +179,9 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
     };
 
     if (comprobanteEmitido) {
-      setTimeout(despacharCorreoPDF, 800); // 800ms de delay para que cargue bien el QR de AFIP antes de la foto
+      setTimeout(despacharCorreoPDF, 800); 
     }
-  }, [comprobanteEmitido]); // eslint-disable-line
+  }, [comprobanteEmitido]); 
 
   const manejarEmision = async () => {
     if (!carrito || carrito.length === 0) return alert('El carrito está vacío.');
@@ -240,10 +237,15 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
         }
       }
 
+      const ahora = new Date();
+      const fechaHoraTexto = ahora.toLocaleDateString('es-AR') + ' ' + ahora.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+
+      // ACÁ INYECTAMOS EL NOMBRE DEL OPERADOR EN EL OBJETO FINAL
       const comprobanteData = {
         tipo: tipoComprobante, letra: letraComprobante, nroComprobante: nroGenerado,
-        fecha: new Date().toLocaleString('es-AR'), cliente: clienteSeleccionado, items: carrito,
-        total: resumen.totalFisicoCobrado, pagos: pagosFinales, datosAfip: infoCae
+        fecha: fechaHoraTexto, cliente: clienteSeleccionado, items: carrito,
+        total: resumen.totalFisicoCobrado, pagos: pagosFinales, datosAfip: infoCae,
+        operador: usuarioOperador || 'Vendedor'
       };
 
       if (opcionesImpresion.a4 && !opcionesImpresion.ticket) setVistaPrevia('A4'); else setVistaPrevia('TICKET');
@@ -255,7 +257,6 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
         window.open(`https://api.whatsapp.com/send?phone=${telLimpio}&text=${mensajeWpp}`, '_blank');
       }
 
-      // ESTABLECEMOS EL COMPROBANTE EMITIDO (Esto detona el useEffect de arriba que saca la foto PDF)
       setComprobanteEmitido(comprobanteData);
 
     } catch (error) {
@@ -386,4 +387,4 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
       )}
     </div>
   );
-} 
+}

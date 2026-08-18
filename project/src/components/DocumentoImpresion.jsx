@@ -5,14 +5,15 @@ export default function DocumentoImpresion({
   tipo = 'FISCAL', 
   letra = 'B',     
   nroComprobante = '00014-00000000',
-  fecha = new Date().toLocaleString('es-AR'),
+  fecha = '',
   cliente = { nombre: 'Consumidor Final', cuit: '', condicionIva: 'Consumidor Final', direccion: '' },
   items = [],
   total = 0,
   pagos = [],
   datosAfip = null,
   formato = 'TICKET',
-  leyendasSeleccionadas = [true, true, true]
+  leyendasSeleccionadas = [true, true, true],
+  operador = 'Vendedor'
 }) {
   const [empresa, setEmpresa] = useState(null);
 
@@ -31,7 +32,9 @@ export default function DocumentoImpresion({
 
   const esPresupuestoO_Interno = tipo === 'PRESUPUESTO' || letra === 'X';
   const esCtaCte = pagos && pagos.some(p => p.metodo === 'Cuenta Corriente');
-  const condicionVenta = pagos && pagos.length > 0 ? pagos.map(p => p.metodo).join(' / ') : 'Contado';
+  
+  // LOGICA RIGUROSA DE CONDICIÓN DE VENTA
+  const condicionVenta = esCtaCte ? 'Cuenta Corriente' : 'Contado';
 
   let tituloDocumento = esPresupuestoO_Interno ? 'PRESUPUESTO' : (letra === 'A' ? 'FACTURA A' : 'FACTURA B');
   if (esPresupuestoO_Interno && esCtaCte) tituloDocumento = 'PRESUPUESTO (CC)';
@@ -91,6 +94,7 @@ export default function DocumentoImpresion({
           <div className="fw-bold mt-1">{tituloDocumento}</div>
           <div className="font-monospace">{nroComprobante}</div>
           <div style={{ fontSize: '10px' }}>Fecha: {fecha}</div>
+          <div style={{ fontSize: '10px' }}>Cajero/a: {operador}</div>
           {esPresupuestoO_Interno && (<div className="fw-bold mt-1" style={{ fontSize: '9px' }}>DOCUMENTO NO VÁLIDO COMO FACTURA</div>)}
         </div>
 
@@ -125,9 +129,22 @@ export default function DocumentoImpresion({
         </table>
 
         {/* TOTAL */}
-        <div className="border-top border-dark border-2 pt-1 pb-2 text-end">
+        <div className="border-top border-dark border-2 pt-1 pb-1 text-end">
           <div className="fs-6 fw-bold">TOTAL: {formatoMoneda(total)}</div>
         </div>
+
+        {/* DETALLE DE PAGOS */}
+        {pagos && pagos.length > 0 && (
+          <div className="border-bottom border-dark pb-2 mb-2" style={{ fontSize: '9px' }}>
+            <strong>Detalle de Pagos:</strong>
+            {pagos.map((p, i) => (
+              <div key={i} className="d-flex justify-content-between">
+                <span>- {p.metodo}</span>
+                <span className="font-monospace fw-bold">{formatoMoneda(p.fisicoCobrado)}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* PIE ARCA/AFIP Y TRANSPARENCIA FISCAL */}
         {!esPresupuestoO_Interno ? (
@@ -186,6 +203,7 @@ export default function DocumentoImpresion({
             <h4 className="fw-bold tracking-wide">{tituloDocumento}</h4>
             <div className="fs-6 font-monospace mb-1"><strong>Nro:</strong> {nroComprobante}</div>
             <div><strong>Fecha de Emisión:</strong> {fecha}</div>
+            <div><strong>Atendió:</strong> {operador}</div>
             <div><strong>Condición de Venta:</strong> {condicionVenta}</div>
             
             {!esPresupuestoO_Interno ? (
@@ -232,11 +250,23 @@ export default function DocumentoImpresion({
         </tbody>
       </table>
 
-      {/* TOTALES */}
-      <div className="d-flex justify-content-end mb-3">
-        <div className="border border-dark p-3 text-end" style={{ width: '260px' }}>
+      {/* TOTALES Y DETALLE DE PAGO */}
+      <div className="d-flex flex-column align-items-end mb-3">
+        <div className="border border-dark p-3 text-end mb-2" style={{ width: '280px' }}>
           <div className="fs-5 fw-bold font-monospace">TOTAL: {formatoMoneda(total)}</div>
         </div>
+        
+        {pagos && pagos.length > 0 && (
+          <div className="border border-dark p-2 bg-light bg-opacity-50" style={{ width: '280px', fontSize: '11px' }}>
+            <strong className="d-block mb-1 border-bottom border-dark pb-1">Detalle de Pagos:</strong>
+            {pagos.map((p, idx) => (
+              <div key={idx} className="d-flex justify-content-between mt-1">
+                <span>{p.metodo}</span>
+                <span className="font-monospace fw-bold">{formatoMoneda(p.fisicoCobrado)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* PIE DE PÁGINA: LEYES Y ARCA */}

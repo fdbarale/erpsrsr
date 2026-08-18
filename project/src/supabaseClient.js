@@ -1,11 +1,15 @@
 import { createClient } from '@supabase/supabase-js';
 
-// CONEXIÓN 1: LA OFICIAL (Física y Fiscal)
-const supabaseUrlOficial = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKeyOficial = import.meta.env.VITE_SUPABASE_ANON_KEY;
-export const dbOficial = createClient(supabaseUrlOficial, supabaseAnonKeyOficial);
+// 1. BASE DE DATOS OFICIAL (La que pusiste en el .env)
+const urlOficial = import.meta.env.VITE_SUPABASE_URL;
+const keyOficial = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// CONEXIÓN 2: LA PARDA (Negro y Cuentas Corrientes)
-const supabaseUrlParda = import.meta.env.VITE_SUPABASE_URL_PARDA;
-const supabaseAnonKeyParda = import.meta.env.VITE_SUPABASE_ANON_KEY_PARDA;
-export const dbParda = createClient(supabaseUrlParda, supabaseAnonKeyParda);
+export const dbOficial = createClient(urlOficial, keyOficial);
+
+// 2. BASE DE DATOS PARDA
+// Le ponemos un fallback (|| urlOficial) para que no rompa la app 
+// si te olvidás de poner las variables de la Parda en el .env
+const urlParda = import.meta.env.VITE_SUPABASE_PARDA_URL || urlOficial;
+const keyParda = import.meta.env.VITE_SUPABASE_PARDA_KEY || keyOficial;
+
+export const dbParda = createClient(urlParda, keyParda);

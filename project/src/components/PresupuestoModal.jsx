@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import qz from 'qz-tray';
 
+// FIJATE QUE AGREGUÉ usuarioOperador ACÁ ABAJO ↓
 export default function PresupuestoModal({
   carrito,
   totalCarrito,
   cerrar,
   vaciarYConfirmar,
+  usuarioOperador
 }) {
   // === CAMPOS EXIGIDOS ===
   const [nombre, setNombre] = useState('');
@@ -110,6 +112,7 @@ export default function PresupuestoModal({
           '--------------------------------\n',
           `Presupuesto: ${nroPresupuesto}\n`,
           `Fecha: ${strFecha} ${strHora}\n`,
+          `Atendio: ${usuarioOperador || 'Vendedor'}\n`,
           `Validez: ${strVenc} (${validezDias} dias)\n`,
           '--------------------------------\n',
           '\x1B\x61\x00',
@@ -177,7 +180,8 @@ export default function PresupuestoModal({
                 <td style="width: 50%; padding: 15px; text-align: right;">
                   <h2 style="margin: 0; font-size: 20px; letter-spacing:1px;">PRESUPUESTO COMERCIAL</h2>
                   <p style="margin: 5px 0; font-size: 14px; font-family: monospace;"><strong>Nro:</strong> ${nroPresupuesto}</p>
-                  <p style="margin: 0; font-size: 13px;"><strong>Fecha:</strong> ${strFecha} &nbsp;&nbsp; <strong>Vence:</strong> ${strVenc}</p>
+                  <p style="margin: 0; font-size: 13px;"><strong>Fecha:</strong> ${strFecha} ${strHora} &nbsp;&nbsp; <strong>Vence:</strong> ${strVenc}</p>
+                  <p style="margin: 2px 0 0 0; font-size: 13px;"><strong>Atendió:</strong> ${usuarioOperador || 'Vendedor'}</p>
                 </td>
               </tr>
             </table>
