@@ -4,7 +4,6 @@ import DocumentoImpresion from './DocumentoImpresion';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
-// FIJATE QUE AGREGUÉ usuarioOperador ACÁ ABAJO ↓
 export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciarYConfirmar, usuarioOperador }) {
   const [procesando, setProcesando] = useState(false);
   const [modoPardo, setModoPardo] = useState(false);
@@ -33,7 +32,7 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
   const [emailDestino, setEmailDestino] = useState('');
 
   const colorBordo = '#6B1116';
-  const colorPardo = '#212529'; 
+  const colorPardo = '#212529';
 
   useEffect(() => {
     const cargarDatosIniciales = async () => {
@@ -144,7 +143,6 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
           pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
           const pdfBase64 = pdf.output('datauristring').split(',')[1];
 
-          // ACÁ AJUSTAMOS PARA QUE EN EL MAIL TAMBIÉN MUESTRE LA MARCA JUNTO A LA DESCRIPCIÓN
           const itemsHtml = comprobanteEmitido.items.map(it => {
             const marcaStr = it.marca ? it.marca + ' ' : '';
             const nombreItem = `${marcaStr}${it.descripcion || it.desc || it.cod}`.trim();
@@ -204,6 +202,7 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
       const montoCtaCte = directoCtaCte ? resumen.totalLista : pagosFinales.filter(p => p.metodo === 'Cuenta Corriente').reduce((acc, p) => acc + p.fisicoCobrado, 0);
 
       if (!modoPardo) {
+        // --- 1. PROCESO FISCAL (Base Oficial) ---
         const docCliente = clienteSeleccionado.cuit ? clienteSeleccionado.cuit.replace(/-/g, '') : '';
         const condIva = clienteSeleccionado.condicionIva || 'Consumidor Final';
         const { data: dataAfip, error: errorAfip } = await dbOficial.functions.invoke('facturacion-afip', { body: { total: resumen.totalFiscal, cliente_doc: docCliente, cliente_iva: condIva } });
@@ -215,26 +214,95 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
         tipoComprobante = 'FISCAL';
         infoCae = { cae: dataAfip.cae, vtoCae: dataAfip.vtoCae };
 
-        const { error: errorDb } = await dbOficial.rpc('procesar_venta_interna', { p_cliente_id: clienteIdParaDb, p_total: resumen.totalFiscal, p_items: carrito, p_tipo: 'FISCAL', p_nro_comprobante: nroGenerado });
-        if (errorDb) throw new Error("Error en BD Oficial: " + errorDb.message);
+        // Inserción directa en Oficial
+        const { data: ventaOficial, error: errorDb } = await dbOficial
+          .from('ventas')
+          .insert([{
+            cliente_id: clienteIdParaDb,
+            cliente_nombre: clienteSeleccionado.nombre,
+            total: resumen.totalFiscal,
+            nro_comprobante: nroGenerado,
+            tipo: 'FISCAL',
+            letra: letraComprobante,
+            vendedor: usuarioOperador || 'Vendedor',
+            estado: 'EMITIDO'
+          }])
+          .select('id')
+          .single();
+
+        if (errorDb) throw new Error("Error en BD Oficial (Ventas): " + errorDb.message);
+
+        const itemsOficial = carrito.map(it => ({
+          venta_id: ventaOficial.id,
+          articulo_cod: it.cod || it.articulo_cod,
+          descripcion: (it.marca ? it.marca + ' ' : '') + (it.desc || it.descripcion || it.cod),
+          cantidad: Number(it.cantidad || it.cant || 1),
+          precio_unitario: Number(it.precio || it.precio_unitario || 0),
+          subtotal: Number(it.cantidad || 1) * Number(it.precio || 0),
+          marca: it.marca || null,
+          codigo_aux: it.codigo_aux || null
+        }));
+
+        const { error: errorItemsOficial } = await dbOficial.from('ventas_items').insert(itemsOficial);
+        if (errorItemsOficial) throw new Error("Error en BD Oficial (Items): " + errorItemsOficial.message);
+
+        // Descuento de stock en Oficial
+        for (const it of carrito) {
+          if (it.esManual || it.cod === 'MANUAL') continue;
+          const { data: art } = await dbOficial.from('articulos').select('stock').eq('cod', it.cod).single();
+          if (art) {
+            const nuevoStock = Number(art.stock || 0) - Number(it.cantidad || 1);
+            await dbOficial.from('articulos').update({ stock: nuevoStock }).eq('cod', it.cod);
+          }
+        }
 
         if (montoCtaCte > 0 && clienteSeleccionado.id) {
           const nuevoSaldo = Number(clienteSeleccionado.saldo_fiscal || 0) + montoCtaCte;
           await dbOficial.from('clientes').update({ saldo_fiscal: nuevoSaldo }).eq('id', clienteSeleccionado.id);
           await dbOficial.from('movimientos_cc').insert([{ cliente_id: clienteSeleccionado.id, nro: nroGenerado, monto: montoCtaCte, fiscal: true, articulos: carrito }]);
         }
+
       } else {
+        // --- 2. PROCESO INTERNO / NO FISCAL (Base Parda) ---
         const fechaCorta = new Date().toISOString().slice(2, 10).replace(/-/g, '');
         const aleatorio = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
         nroGenerado = `Presupuesto X 00014-${fechaCorta}${aleatorio}`;
         tipoComprobante = 'PRESUPUESTO';
         letraComprobante = 'X';
 
-        const { error: errorParda } = await dbParda.rpc('procesar_venta_parda', { p_cliente_id: clienteIdParaDb, p_total: resumen.totalFiscal, p_items: carrito, p_nro_comprobante: nroGenerado });
-        if (errorParda) throw new Error("Error en BD Parda: " + errorParda.message);
+        // Inserción directa en Parda
+        const { data: ventaParda, error: errorVenta } = await dbParda
+          .from('ventas')
+          .insert([{
+            cliente_id: clienteIdParaDb,
+            total: resumen.totalFiscal,
+            nro_comprobante: nroGenerado,
+            tipo: 'INTERNO'
+          }])
+          .select('id')
+          .single();
 
-        const { error: errorStock } = await dbOficial.rpc('descontar_stock_silencioso', { p_items: carrito });
-        if (errorStock) throw new Error("Error descontando stock: " + errorStock.message);
+        if (errorVenta) throw new Error("Error en BD Parda (Ventas): " + errorVenta.message);
+
+        const itemsParda = carrito.map(it => ({
+          venta_id: ventaParda.id,
+          articulo_cod: it.cod || it.articulo_cod,
+          cantidad: Number(it.cantidad || it.cant || 1),
+          precio_unitario: Number(it.precio || it.precio_unitario || 0)
+        }));
+
+        const { error: errorItemsParda } = await dbParda.from('ventas_items').insert(itemsParda);
+        if (errorItemsParda) throw new Error("Error en BD Parda (Items): " + errorItemsParda.message);
+
+        // Descuento silencioso del stock físico en la Oficial
+        for (const it of carrito) {
+          if (it.esManual || it.cod === 'MANUAL') continue;
+          const { data: art } = await dbOficial.from('articulos').select('stock').eq('cod', it.cod).single();
+          if (art) {
+            const nuevoStock = Number(art.stock || 0) - Number(it.cantidad || 1);
+            await dbOficial.from('articulos').update({ stock: nuevoStock }).eq('cod', it.cod);
+          }
+        }
 
         if (montoCtaCte > 0 && clienteSeleccionado.id) {
           const nuevoSaldo = Number(clienteSeleccionado.saldo_interno || 0) + montoCtaCte;
@@ -257,7 +325,6 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
 
       if (enviarWhatsapp && whatsappDestino) {
         const telLimpio = whatsappDestino.replace(/\D/g, '');
-        // ACÁ AJUSTAMOS PARA QUE EN WHATSAPP TAMBIÉN MUESTRE LA MARCA JUNTO A LA DESCRIPCIÓN
         const itemsTxt = carrito.map(it => {
             const marcaStr = it.marca ? it.marca + ' ' : '';
             const nombreItem = `${marcaStr}${it.descripcion || it.desc || it.cod}`.trim();

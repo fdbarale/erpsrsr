@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 import { dbOficial } from './supabaseClient';
 import { RefreshCw } from 'lucide-react';
+import { syncCatalogo } from './utils/dbLocal';
 
-// Imports de los módulos
-import FacturacionModal from './components/FacturacionModal';
+// Imports de los módulos (Fijate que volamos FacturacionModal de acá)
 import GestionStock from './components/GestionStock';
 import Configuracion from './components/Configuracion';
 import Contabilidad from './components/Contabilidad';
 import Pedidos from './components/Pedidos';
-import Mostrador from './components/Mostrador';
+import Mostrador from './components/mostrador/Mostrador';
 import Deposito from './components/Deposito';
 import CuentasCorrientes from './components/CuentasCorrientes';
 import HistorialComprobantes from './components/HistorialComprobantes';
@@ -23,10 +23,6 @@ function App() {
   const [emailInput, setEmailInput] = useState('');
   const [passInput, setPassInput] = useState('');
   const [vista, setVista] = useState('dashboard');
-
-  const [carritoMostrador, setCarritoMostrador] = useState([]);
-  const [baseDatosArticulos, setBaseDatosArticulos] = useState([]);
-  const [abrirFacturacion, setAbrirFacturacion] = useState(false);
 
   const [mostrarCambioSesion, setMostrarCambioSesion] = useState(false);
   const [switchEmail, setSwitchEmail] = useState('');
@@ -46,11 +42,8 @@ function App() {
     };
     cargarUsuarios();
 
-    const cargarArticulos = async () => {
-      const { data } = await dbOficial.from('articulos').select('*');
-      if (data) setBaseDatosArticulos(data);
-    };
-    cargarArticulos();
+    // Sincronización cruda a IndexedDB en background
+    syncCatalogo().catch(console.error);
 
     return () => authListener.subscription.unsubscribe();
   }, []);
@@ -96,7 +89,6 @@ function App() {
 
   const cerrarSesion = () => dbOficial.auth.signOut();
 
-  // PANTALLA LOGIN PRINCIPAL (Responsive)
   if (!session || !usuarioActivo) {
     return (
       <div className="container-fluid min-vh-100 d-flex align-items-center justify-content-center bg-light p-3">
@@ -124,7 +116,6 @@ function App() {
   return (
     <div className="container-fluid p-0 d-flex flex-column vh-100">
       
-      {/* OVERLAY DE CAMBIO RÁPIDO DE SESIÓN (Responsive) */}
       {mostrarCambioSesion && (
         <div className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center p-3" style={{ zIndex: 10000, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}>
           <div className="card shadow-lg border-0 p-4 w-100" style={{ maxWidth: '380px', borderRadius: '12px' }}>
@@ -151,19 +142,19 @@ function App() {
 
       {vista === 'dashboard' && (
         <MenuDashboard 
-          cambiarPantalla={setVista} usuarioActivo={usuarioActivo} usuariosDB={usuariosDB} onlineUsers={onlineUsers}
+          cambiarPantalla={setVista} 
+          usuarioActivo={usuarioActivo} 
+          usuariosDB={usuariosDB} 
+          onlineUsers={onlineUsers}
           abrirCambioSesion={() => { setSwitchEmail(''); setSwitchPass(''); setMostrarCambioSesion(true); }}
           cerrarSesion={cerrarSesion}
         />
       )}
 
+      {/* Fijate cómo quedó limpio el llamado al Mostrador */}
       {vista === 'mostrador' && (
         <Mostrador 
-          baseDatos={baseDatosArticulos} setBaseDatos={setBaseDatosArticulos}
-          carrito={carritoMostrador} setCarrito={setCarritoMostrador}
-          abrirFacturacionInicial={abrirFacturacion} desactivarFacturacionInicial={() => setAbrirFacturacion(false)}
           volverAlMenu={() => setVista('dashboard')}
-          procesarVenta={(carritoFacturar) => { setCarritoMostrador(carritoFacturar); setAbrirFacturacion(true); }}
           usuarioOperador={usuarioActivo.nombre}
         />
       )}
@@ -175,15 +166,6 @@ function App() {
       {vista === 'contabilidad' && <Contabilidad volverAlMenu={() => setVista('dashboard')} />} 
       {vista === 'stock' && <GestionStock volverAlMenu={() => setVista('dashboard')} />}
       {(vista === 'comprobantes' || vista === 'historial') && <HistorialComprobantes volverAlMenu={() => setVista('dashboard')} />}
-      
-      {abrirFacturacion && (
-        <FacturacionModal 
-          carrito={carritoMostrador} totalCarrito={carritoMostrador.reduce((acc, item) => acc + (item.cantidad * item.precio), 0)}
-          cerrar={() => setAbrirFacturacion(false)}
-          vaciarYConfirmar={() => { setCarritoMostrador([]); setAbrirFacturacion(false); }}
-          usuarioOperador={usuarioActivo.nombre}
-        />
-      )}
     </div>
   );
 }

@@ -71,9 +71,6 @@ export default function PresupuestoModal({
       const strHora = fechaEmi.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
       const titular = `${apellido.toUpperCase()} ${nombre.toUpperCase()}`.trim() || 'CONSUMIDOR FINAL';
 
-      // =========================================================
-      // FORMATO: TICKET TÉRMICO (EPSON)
-      // =========================================================
       if (salidaTicket) {
         const configTicket = qz.configs.create('EPSON TM-T20II Receipt5');
         let comandos = [
@@ -88,9 +85,7 @@ export default function PresupuestoModal({
         ];
 
         carritoPresupuestado.forEach((item) => {
-          // Imprimimos el código original y el maestro en un renglón
           comandos.push(`C:${item.cod} | M:${item.codigo_aux || '-'}\n`);
-          // Imprimimos la marca junto con la descripción y los precios en otro renglón
           const descConMarca = `${item.marca || ''} ${item.desc}`.trim();
           comandos.push(`${item.cantidad.toString().padEnd(4)} ${descConMarca.substring(0, 15).padEnd(16)} ${formatoMoneda(item.subtotalPresupuesto).padStart(9)}\n`);
         });
@@ -105,9 +100,6 @@ export default function PresupuestoModal({
         await qz.print(configTicket, comandos);
       }
 
-      // =========================================================
-      // FORMATO: HOJA A4 (BROTHER)
-      // =========================================================
       if (salidaA4) {
         const configBrother = qz.configs.create('Brother HL-1200 series', { size: { width: 8.27, height: 11.69 }, units: 'in', margins: 0.4 });
         const htmlA4 = `
@@ -197,9 +189,16 @@ export default function PresupuestoModal({
   const procesarGuardadoFinal = async () => {
     const titularFinal = `${apellido.toUpperCase()} ${nombre.toUpperCase()}`.trim() || 'CLIENTE MOSTRADOR';
     
+    const fechaCorta = new Date().toISOString().slice(2, 10).replace(/-/g, '');
+    const aleatorio = Math.floor(1000 + Math.random() * 9000);
+    const nroPresupuesto = `PRE-${fechaCorta}-${aleatorio}`;
+
     const payloadVenta = {
       cliente_nombre: titularFinal,
-      total_venta: totalPresupuestoFinal,
+      nro_comprobante: nroPresupuesto, 
+      tipo: 'PRESUPUESTO',              
+      letra: 'X',
+      total: totalPresupuestoFinal,  // <-- CORREGIDO ACÁ (Era "total_venta")
       descuento_porcentaje: parseFloat(descuentoGral) || 0,
       vendedor: usuarioOperador,
       estado: 'PRESUPUESTO',
@@ -209,7 +208,7 @@ export default function PresupuestoModal({
     const { data: ventaGenerada, error: errVenta } = await dbOficial.from('ventas').insert([payloadVenta]).select().single();
 
     if (errVenta) {
-      alert("No se pudo guardar el presupuesto en la base de datos.");
+      alert("No se pudo guardar el presupuesto en la base de datos. Avisale al soporte de la DB.");
       console.error(errVenta);
       return;
     }
@@ -228,7 +227,6 @@ export default function PresupuestoModal({
     const { error: errItems } = await dbOficial.from('ventas_items').insert(payloadItems);
     if (errItems) console.error("Error guardando ítems:", errItems);
 
-    const nroPresupuesto = 'PRE-' + ventaGenerada.id.toString().padStart(6, '0');
     await ejecutarColaImpresionQZ(nroPresupuesto);
 
     if (salidaWsp && telefono) alert(`[PDF Engine]: Enviando PDF por WhatsApp al: ${telefono}`);
