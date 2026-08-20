@@ -1,19 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import FacturacionModal from './FacturacionModal';
 import PresupuestoModal from './PresupuestoModal';
+import ModalRecuperarPresupuesto from './ModalRecuperarPresupuesto'; // NUEVO COMPONENTE
 
 const CONFIG_MARGEN_MAXIMO_PORCENTAJE = 20;
 const LISTA_FILTROS = ['LOCAL', 'TODOS', 'Bálsamo', 'VMG', 'SKF', 'Arteb'];
 
-export default function Mostrador({
-  baseDatos,
-  setBaseDatos,
-  carrito,
-  setCarrito,
-  abrirFacturacionInicial,
-  desactivarFacturacionInicial,
-  volverAlMenu,
-}) {
+export default function Mostrador({ baseDatos, setBaseDatos, carrito, setCarrito, abrirFacturacionInicial, desactivarFacturacionInicial, volverAlMenu }) {
   const [textoBusqueda, setTextoBusqueda] = useState('');
   const [modoFiltro, setModoFiltro] = useState('LOCAL');
   const [faseBusqueda, setFaseBusqueda] = useState('BUSQUEDA');
@@ -24,8 +17,11 @@ export default function Mostrador({
   const [indiceSubFoco, setIndiceSubFoco] = useState(-1);
   const [indicePrecioFoco, setIndicePrecioFoco] = useState(-1);
   const [itemPendiente, setItemPendiente] = useState(null);
+  
+  // Modales
   const [mostrarFacturacion, setMostrarFacturacion] = useState(false);
   const [mostrarPresupuesto, setMostrarPresupuesto] = useState(false);
+  const [mostrarRecuperar, setMostrarRecuperar] = useState(false); // NUEVO ESTADO
 
   const buscadorRef = useRef(null);
   const cantidadesRef = useRef([]);
@@ -70,7 +66,7 @@ export default function Mostrador({
 
   useEffect(() => {
     const atajosTeclado = (e) => {
-      if (mostrarFacturacion || mostrarPresupuesto) return;
+      if (mostrarFacturacion || mostrarPresupuesto || mostrarRecuperar) return;
       if (e.key === 'F5') {
         e.preventDefault();
         cargaManual();
@@ -80,8 +76,7 @@ export default function Mostrador({
       } else if (e.key === 'F3') {
         e.preventDefault();
         setModoFiltro((prev) => {
-          const currentIndex = LISTA_FILTROS.indexOf(prev);
-          const nextIndex = (currentIndex + 1) % LISTA_FILTROS.length;
+          const nextIndex = (LISTA_FILTROS.indexOf(prev) + 1) % LISTA_FILTROS.length;
           return LISTA_FILTROS[nextIndex];
         });
       } else if (e.key === 'F12') {
@@ -90,11 +85,14 @@ export default function Mostrador({
       } else if (e.key === 'F9') {
         e.preventDefault();
         if (carrito.length > 0) setMostrarPresupuesto(true);
+      } else if (e.key === 'F8') {
+        e.preventDefault();
+        setMostrarRecuperar(true);
       }
     };
     window.addEventListener('keydown', atajosTeclado);
     return () => window.removeEventListener('keydown', atajosTeclado);
-  }, [textoBusqueda, carrito, faseBusqueda, mostrarFacturacion, mostrarPresupuesto]);
+  }, [textoBusqueda, carrito, faseBusqueda, mostrarFacturacion, mostrarPresupuesto, mostrarRecuperar]);
 
   useEffect(() => {
     let idx = -1;
@@ -119,15 +117,6 @@ export default function Mostrador({
     setItemPendiente(null);
   };
 
-  const actualizarCantidadPedido = (cod, incremento) => {
-    const modificarItem = (lista) => lista.map((item) => {
-      if (item.cod === cod) return { ...item, cant_pendiente: Math.max(0, (item.cant_pendiente || 0) + incremento) };
-      return item;
-    });
-    setBaseDatos((prev) => modificarItem(prev));
-    if (faseBusqueda === 'EQUIVALENCIAS') setListaEquivalencias((prev) => modificarItem(prev));
-  };
-
   const manejarTecladoBuscador = (e) => {
     if (e.key === 'Escape' && faseBusqueda === 'BUSQUEDA') {
       e.preventDefault();
@@ -135,19 +124,6 @@ export default function Mostrador({
       else if (carrito.length === 0) volverAlMenu();
       return;
     }
-
-    if (e.key === 'Insert' || e.key === 'Delete') {
-      const incremento = e.key === 'Insert' ? 1 : -1;
-      if (faseBusqueda === 'BUSQUEDA' && indiceFoco >= 0 && resultados[indiceFoco]) {
-        e.preventDefault();
-        actualizarCantidadPedido(resultados[indiceFoco].cod, incremento);
-      } else if (faseBusqueda === 'EQUIVALENCIAS' && indiceSubFoco >= 0 && listaEquivalencias[indiceSubFoco]) {
-        e.preventDefault();
-        actualizarCantidadPedido(listaEquivalencias[indiceSubFoco].cod, incremento);
-      }
-      return;
-    }
-
     if (faseBusqueda === 'BUSQUEDA') {
       if (resultados.length === 0) return;
       if (e.key === 'ArrowDown') {
@@ -214,14 +190,6 @@ export default function Mostrador({
     const precioMaximo = Math.max(...primos.map((p) => p.precio));
     const limitePermitido = precioMaximo * (1 + CONFIG_MARGEN_MAXIMO_PORCENTAJE / 100);
     const opciones = primos
-      .map((p) => ({
-        distribuidor: p.distribuidor,
-        precio: p.precio,
-        cod: p.cod,
-        stock: p.stock,
-        cant_en_camino: p.cant_en_camino,
-        cant_pendiente: p.cant_pendiente,
-      }))
       .filter((o) => o.precio <= limitePermitido)
       .sort((a, b) => b.precio - a.precio);
 
@@ -234,13 +202,7 @@ export default function Mostrador({
     const nuevoCarrito = [...carrito, { ...repuesto, precio: precioFinal, cantidad: 1, esManual: false }];
     setCarrito(nuevoCarrito);
     limpiarBuscador();
-    const nuevoIndice = nuevoCarrito.length - 1;
-    setTimeout(() => {
-      if (cantidadesRef.current[nuevoIndice]) {
-        cantidadesRef.current[nuevoIndice].focus();
-        cantidadesRef.current[nuevoIndice].select();
-      }
-    }, 50);
+    setTimeout(() => cantidadesRef.current[nuevoCarrito.length - 1]?.focus(), 50);
   };
 
   const limpiarBuscador = () => {
@@ -254,17 +216,10 @@ export default function Mostrador({
 
   const cargaManual = () => {
     const descManual = textoBusqueda.trim().toUpperCase() || 'ARTÍCULO VARIOS';
-    const nuevoItem = { cod: 'MANUAL', desc: descManual, precio: 0, cantidad: 1, esManual: true };
-    const nuevoCarrito = [...carrito, nuevoItem];
+    const nuevoCarrito = [...carrito, { cod: 'MANUAL', desc: descManual, precio: 0, cantidad: 1, esManual: true }];
     setCarrito(nuevoCarrito);
     limpiarBuscador();
-    const nuevoIndice = nuevoCarrito.length - 1;
-    setTimeout(() => {
-      if (cantidadesRef.current[nuevoIndice]) {
-        cantidadesRef.current[nuevoIndice].focus();
-        cantidadesRef.current[nuevoIndice].select();
-      }
-    }, 50);
+    setTimeout(() => cantidadesRef.current[nuevoCarrito.length - 1]?.focus(), 50);
   };
 
   const eliminarDelCarrito = (index) => {
@@ -290,94 +245,42 @@ export default function Mostrador({
     if (e.key === 'Enter') {
       e.preventDefault();
       if (!carrito[index].cantidad) cambiarCantidad(index, 1);
-      if (esManual) {
-        preciosRef.current[index]?.focus();
-        preciosRef.current[index]?.select();
-      } else {
-        buscadorRef.current?.focus();
-      }
+      if (esManual) preciosRef.current[index]?.focus();
+      else buscadorRef.current?.focus();
     }
-  };
-
-  const manejarTecladoPrecio = (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      buscadorRef.current?.focus();
-    }
-  };
-
-  const renderIconoPedido = (item) => {
-    return (
-      <div className="d-inline-flex ms-2 gap-1 align-items-center flex-nowrap">
-        {item.cant_en_camino > 0 && (
-          <span className="badge text-warning border border-warning px-1" style={{ fontSize: '0.75rem' }}>
-            🚚 {item.cant_en_camino}
-          </span>
-        )}
-        {item.cant_pendiente > 0 && (
-          <span className="badge text-info border border-info px-1" style={{ fontSize: '0.75rem' }}>
-            🛒 {item.cant_pendiente}
-          </span>
-        )}
-      </div>
-    );
-  };
-
-  const renderInsigniaStock = (stock) => {
-    return stock > 0 ? (
-      <span className="badge bg-success bg-opacity-10 text-success border border-success mx-2" style={{ fontSize: '0.75rem' }}>
-        Stock: {stock}
-      </span>
-    ) : (
-      <span className="badge bg-danger bg-opacity-10 text-danger border border-danger mx-2" style={{ fontSize: '0.75rem' }}>
-        Stock: {stock}
-      </span>
-    );
   };
 
   const totalVenta = carrito.reduce((acum, item) => acum + (Number(item.precio) || 0) * (Number(item.cantidad) || 0), 0);
   const totalArticulos = carrito.reduce((acum, item) => acum + (Number(item.cantidad) || 0), 0);
   const colorFiltro = modoFiltro === 'LOCAL' ? 'bg-success' : modoFiltro === 'TODOS' ? 'bg-dark' : 'bg-secondary';
 
-  // Función limpiada: Solo vacía carrito y oculta modal
   const manejarCierreYVaciado = () => {
     setCarrito([]);
     setMostrarFacturacion(false);
     setMostrarPresupuesto(false);
-    setTimeout(() => {
-      buscadorRef.current?.focus();
-    }, 100);
+    setTimeout(() => buscadorRef.current?.focus(), 100);
+  };
+
+  // Función para inyectar los ítems de un presupuesto guardado al carrito actual
+  const recibirPresupuesto = (itemsRecuperados) => {
+    setCarrito([...carrito, ...itemsRecuperados]);
+    setMostrarRecuperar(false);
+    setTimeout(() => buscadorRef.current?.focus(), 100);
   };
 
   return (
     <div className="bg-light min-vh-100 d-flex flex-column" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
       
-      {/* MODAL FACTURACIÓN */}
-      {mostrarFacturacion && (
-        <FacturacionModal
-          carrito={carrito}
-          totalCarrito={totalVenta}
-          cerrar={() => setMostrarFacturacion(false)}
-          vaciarYConfirmar={manejarCierreYVaciado}
-        />
-      )}
-
-      {/* MODAL PRESUPUESTO */}
-      {mostrarPresupuesto && (
-        <PresupuestoModal
-          carrito={carrito}
-          totalCarrito={totalVenta}
-          cerrar={() => setMostrarPresupuesto(false)}
-          vaciarYConfirmar={manejarCierreYVaciado}
-        />
-      )}
+      {mostrarFacturacion && <FacturacionModal carrito={carrito} totalCarrito={totalVenta} cerrar={() => setMostrarFacturacion(false)} vaciarYConfirmar={manejarCierreYVaciado} />}
+      {mostrarPresupuesto && <PresupuestoModal carrito={carrito} totalCarrito={totalVenta} cerrar={() => setMostrarPresupuesto(false)} vaciarYConfirmar={manejarCierreYVaciado} />}
+      
+      {/* NUEVO MODAL: Recuperar Presupuestos */}
+      {mostrarRecuperar && <ModalRecuperarPresupuesto cerrar={() => setMostrarRecuperar(false)} cargarPresupuesto={recibirPresupuesto} />}
 
       <nav className="navbar navbar-dark shadow-sm px-3" style={{ backgroundColor: colorBordo, borderBottom: `4px solid ${colorGris}` }}>
         <div className="container-fluid p-0">
           <div className="d-flex align-items-center">
-            <button className="btn btn-sm btn-outline-light me-3 fw-bold" onClick={volverAlMenu} tabIndex="-1">
-              ⬅ Menú (Esc)
-            </button>
+            <button className="btn btn-sm btn-outline-light me-3 fw-bold" onClick={volverAlMenu} tabIndex="-1">⬅ Menú (Esc)</button>
             <span className="navbar-brand fw-bold m-0 tracking-wide">RSR - Mostrador Ágil</span>
           </div>
           <div className="d-flex text-white align-items-center">
@@ -394,16 +297,7 @@ export default function Mostrador({
                 <span className={`badge ${colorFiltro} ms-2 rounded-pill`} style={{ cursor: 'pointer', padding: '0.4em 0.8em' }} onClick={() => setModoFiltro('LOCAL')}>
                   [F3] {modoFiltro}
                 </span>
-                <input
-                  type="text"
-                  className="form-control border-0 shadow-none bg-transparent"
-                  placeholder="🔎 Buscar artículo... (Enter: Cargar | F3: Filtro | F5: Manual | Ins/Supr: Pedidos)"
-                  value={textoBusqueda}
-                  onChange={manejarBusqueda}
-                  onKeyDown={manejarTecladoBuscador}
-                  ref={buscadorRef}
-                  autoComplete="off"
-                />
+                <input type="text" className="form-control border-0 shadow-none bg-transparent" placeholder="🔎 Buscar artículo... (Enter: Cargar | F3: Filtro | F5: Manual)" value={textoBusqueda} onChange={manejarBusqueda} onKeyDown={manejarTecladoBuscador} ref={buscadorRef} autoComplete="off" />
               </div>
 
               {resultados.length > 0 && (
@@ -412,22 +306,12 @@ export default function Mostrador({
                     <ul ref={listaResultadosRef} className="list-group list-group-flush" style={{ maxHeight: '400px', overflowY: 'auto' }}>
                       {resultados.map((item, idx) => {
                         const esActivo = indiceFoco === idx;
-                        const tienePrimos = item.codigo_aux && baseDatos.filter((i) => i.codigo_aux === item.codigo_aux).length > 1;
                         return (
                           <li key={idx} className="list-group-item d-flex justify-content-between align-items-center py-2 border-bottom" onClick={() => procesarSeleccionArticulo(item)} style={{ cursor: 'pointer', borderLeft: esActivo ? `4px solid ${colorBordo}` : '4px solid transparent', backgroundColor: esActivo ? '#d0e7ff' : 'transparent' }}>
                             <div className="d-flex align-items-center w-75">
                               <strong className={`font-monospace ${esActivo ? 'text-dark' : 'text-primary'}`}>{item.cod}</strong>
                               <span className={`ms-2 text-truncate ${esActivo ? 'fw-bold text-dark' : 'fw-semibold text-secondary'}`}>{item.desc}</span>
-                              {item.codigo_aux ? (
-                                <span className="ms-auto d-flex align-items-center flex-nowrap">
-                                  {renderInsigniaStock(item.stock)}
-                                  <span className="badge bg-light text-dark border">{item.distribuidor}</span>
-                                  {tienePrimos && <span className="badge bg-info bg-opacity-10 text-info border border-info ms-2" style={{ fontSize: '0.75rem' }}>Equivalencias (→)</span>}
-                                  {renderIconoPedido(item)}
-                                </span>
-                              ) : (
-                                <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary mx-2" style={{ fontSize: '0.75rem' }}>Sin internalizar</span>
-                              )}
+                              {item.codigo_aux ? <span className="ms-auto"><span className="badge bg-light text-dark border ms-2">{item.distribuidor}</span></span> : <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary mx-2" style={{ fontSize: '0.75rem' }}>Sin internalizar</span>}
                             </div>
                             <div className="fw-bold font-monospace w-25 text-end pe-2 text-dark">{formatoMoneda(item.precio)}</div>
                           </li>
@@ -435,61 +319,31 @@ export default function Mostrador({
                       })}
                     </ul>
                   )}
-
                   {faseBusqueda === 'EQUIVALENCIAS' && (
                     <div className="bg-light">
-                      <div className="p-2 border-bottom text-muted fw-bold d-flex justify-content-between align-items-center" style={{ backgroundColor: '#e9ecef' }}>
-                        <span className="small">⬅ (Izq) Volver</span>
-                        <span className="text-dark small fw-bold">Equivalencias Disponibles (Ins/Supr para Pedido directo)</span>
-                        <span style={{ width: '80px' }}></span>
-                      </div>
+                      <div className="p-2 border-bottom text-muted fw-bold d-flex justify-content-between align-items-center" style={{ backgroundColor: '#e9ecef' }}><span className="small">⬅ Volver</span><span className="text-dark small fw-bold">Equivalencias Disponibles</span></div>
                       <ul ref={listaResultadosRef} className="list-group list-group-flush" style={{ maxHeight: '310px', overflowY: 'auto' }}>
                         {listaEquivalencias.map((item, idx) => {
                           const esActivo = indiceSubFoco === idx;
                           return (
                             <li key={idx} className="list-group-item d-flex justify-content-between align-items-center py-2 border-bottom" onClick={() => iniciarSeleccionDePrecio(item)} style={{ cursor: 'pointer', borderLeft: esActivo ? `4px solid ${colorBordo}` : '4px solid transparent', backgroundColor: esActivo ? '#d0e7ff' : 'transparent' }}>
-                              <div className="d-flex align-items-center w-75">
-                                <strong className={`font-monospace ${esActivo ? 'text-dark' : 'text-primary'}`}>{item.cod}</strong>
-                                <span className={`ms-2 text-truncate ${esActivo ? 'fw-bold text-dark' : 'text-secondary'}`}>{item.desc}</span>
-                                <div className="ms-auto d-flex align-items-center flex-nowrap">
-                                  {renderInsigniaStock(item.stock)}
-                                  <span className="badge bg-light text-dark border">{item.distribuidor}</span>
-                                  {renderIconoPedido(item)}
-                                </div>
-                              </div>
-                              <div className="fw-bold text-dark font-monospace text-end w-25 pe-2">
-                                {formatoMoneda(item.precio)}
-                                {esActivo && <span className="d-block text-muted font-sans" style={{ fontSize: '0.65rem' }}>(Enter) Elegir para Cobrar</span>}
-                              </div>
+                              <div className="d-flex align-items-center w-75"><strong className={`font-monospace ${esActivo ? 'text-dark' : 'text-primary'}`}>{item.cod}</strong><span className={`ms-2 text-truncate ${esActivo ? 'fw-bold text-dark' : 'text-secondary'}`}>{item.desc}</span><span className="badge bg-light text-dark border ms-auto">{item.distribuidor}</span></div>
+                              <div className="fw-bold text-dark font-monospace text-end w-25 pe-2">{formatoMoneda(item.precio)}</div>
                             </li>
                           );
                         })}
                       </ul>
                     </div>
                   )}
-
                   {faseBusqueda === 'PRECIOS' && (
                     <div className="bg-light">
-                      <div className="p-2 border-bottom fw-bold text-center d-flex flex-column align-items-center" style={{ backgroundColor: '#fff3cd' }}>
-                        <span className="small text-dark">
-                          Entregando físico: <strong>{itemPendiente?.cod} ({itemPendiente?.distribuidor})</strong>
-                        </span>
-                        <span className="small text-secondary mt-1" style={{ fontSize: '0.75rem' }}>Seleccione el precio de lista que desea aplicarle a este despacho</span>
-                      </div>
+                      <div className="p-2 border-bottom fw-bold text-center d-flex flex-column align-items-center" style={{ backgroundColor: '#fff3cd' }}><span className="small text-dark">Entregando físico: <strong>{itemPendiente?.cod} ({itemPendiente?.distribuidor})</strong></span></div>
                       <ul ref={listaResultadosRef} className="list-group list-group-flush" style={{ maxHeight: '310px', overflowY: 'auto' }}>
                         {opcionesPrecio.map((opcion, idx) => {
                           const esActivo = indicePrecioFoco === idx;
                           return (
                             <li key={idx} className="list-group-item d-flex justify-content-between align-items-center py-2 border-bottom" onClick={() => confirmarAgregarAlCarrito(itemPendiente, opcion.precio)} style={{ cursor: 'pointer', borderLeft: esActivo ? '4px solid #ffc107' : '4px solid transparent', backgroundColor: esActivo ? '#ffebb3' : 'transparent' }}>
-                              <div className="d-flex align-items-center w-75">
-                                <span className={`small ${esActivo ? 'text-dark fw-bold' : 'text-secondary'}`}>Aplicar precio de lista de: </span>
-                                <strong className="font-monospace text-dark ms-2">{opcion.cod}</strong>
-                                <span className="badge bg-light text-dark border ms-2">{opcion.distribuidor}</span>
-                                <div className="ms-auto d-flex align-items-center flex-nowrap">
-                                  {renderInsigniaStock(opcion.stock)}
-                                  {renderIconoPedido(opcion)}
-                                </div>
-                              </div>
+                              <div className="d-flex align-items-center w-75"><span className={`small ${esActivo ? 'text-dark fw-bold' : 'text-secondary'}`}>Precio de lista de: </span><strong className="font-monospace text-dark ms-2">{opcion.cod}</strong><span className="badge bg-light text-dark border ms-2">{opcion.distribuidor}</span></div>
                               <div className="fw-bold fs-5 text-dark font-monospace w-25 text-end pe-2">{formatoMoneda(opcion.precio)}</div>
                             </li>
                           );
@@ -516,42 +370,22 @@ export default function Mostrador({
                   </thead>
                   <tbody>
                     {carrito.length === 0 ? (
-                      <tr>
-                        <td colSpan="6" className="text-center text-muted py-4">
-                          <span className="d-block fs-2 mb-1 opacity-25">🛒</span>
-                          El carrito está vacío.
-                        </td>
-                      </tr>
+                      <tr><td colSpan="6" className="text-center text-muted py-4"><span className="d-block fs-2 mb-1 opacity-25">🛒</span>El carrito está vacío.</td></tr>
                     ) : (
                       carrito.map((item, index) => (
                         <tr key={index} className="border-bottom">
                           <td className="fw-bold font-monospace text-primary ps-3">{item.cod}</td>
                           <td>
-                            {item.esManual ? (
-                              <input type="text" className="form-control form-control-sm border-0 bg-light fw-bold w-100" value={item.desc} onChange={(e) => cambiarDatoManual(index, 'desc', e.target.value)} />
-                            ) : (
-                              <span className="fw-semibold text-dark">{item.desc}</span>
-                            )}
+                            {item.esManual ? <input type="text" className="form-control form-control-sm border-0 bg-light fw-bold w-100" value={item.desc} onChange={(e) => cambiarDatoManual(index, 'desc', e.target.value)} /> : <span className="fw-semibold text-dark">{item.desc}</span>}
                           </td>
-                          <td className="text-center">
-                            <input type="number" className="form-control form-control-sm text-center font-monospace fw-bold bg-light mx-auto" style={{ maxWidth: '70px' }} value={item.cantidad} onChange={(e) => cambiarCantidad(index, e.target.value)} onKeyDown={(e) => manejarTecladoCantidad(e, index, item.esManual)} ref={(el) => (cantidadesRef.current[index] = el)} />
-                          </td>
+                          <td className="text-center"><input type="number" className="form-control form-control-sm text-center font-monospace fw-bold bg-light mx-auto" style={{ maxWidth: '70px' }} value={item.cantidad} onChange={(e) => cambiarCantidad(index, e.target.value)} onKeyDown={(e) => manejarTecladoCantidad(e, index, item.esManual)} ref={(el) => (cantidadesRef.current[index] = el)} /></td>
                           <td className="text-end">
                             {item.esManual ? (
-                              <div className="input-group input-group-sm justify-content-end">
-                                <span className="input-group-text bg-transparent border-0 text-success fw-bold pe-1 px-1">$</span>
-                                <input type="number" className="form-control form-control-sm text-end font-monospace fw-bold text-success bg-light" style={{ maxWidth: '80px' }} value={item.precio || ''} onChange={(e) => cambiarDatoManual(index, 'precio', e.target.value)} onKeyDown={manejarTecladoPrecio} ref={(el) => (preciosRef.current[index] = el)} />
-                              </div>
-                            ) : (
-                              <span className="font-monospace text-secondary">{formatoMoneda(item.precio)}</span>
-                            )}
+                              <div className="input-group input-group-sm justify-content-end"><span className="input-group-text bg-transparent border-0 text-success fw-bold pe-1 px-1">$</span><input type="number" className="form-control form-control-sm text-end font-monospace fw-bold text-success bg-light" style={{ maxWidth: '80px' }} value={item.precio || ''} onChange={(e) => cambiarDatoManual(index, 'precio', e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') buscadorRef.current?.focus(); }} ref={(el) => (preciosRef.current[index] = el)} /></div>
+                            ) : <span className="font-monospace text-secondary">{formatoMoneda(item.precio)}</span>}
                           </td>
-                          <td className="text-end fw-bold font-monospace text-dark pe-3">
-                            {formatoMoneda((Number(item.precio) || 0) * (Number(item.cantidad) || 0))}
-                          </td>
-                          <td className="text-end pe-2">
-                            <button className="btn btn-sm text-danger opacity-50 p-1" tabIndex="-1" onClick={() => eliminarDelCarrito(index)}>✖</button>
-                          </td>
+                          <td className="text-end fw-bold font-monospace text-dark pe-3">{formatoMoneda((Number(item.precio) || 0) * (Number(item.cantidad) || 0))}</td>
+                          <td className="text-end pe-2"><button className="btn btn-sm text-danger opacity-50 p-1" tabIndex="-1" onClick={() => eliminarDelCarrito(index)}>✖</button></td>
                         </tr>
                       ))
                     )}
@@ -567,12 +401,12 @@ export default function Mostrador({
                 <h6 className="text-uppercase text-secondary fw-bold mb-1 small">Total Carrito</h6>
                 <h2 className="fw-bolder text-dark mb-0 font-monospace">{formatoMoneda(totalVenta)}</h2>
                 <hr className="text-muted my-2" />
-                <div className="d-flex justify-content-between text-secondary mb-2" style={{ fontSize: '0.75rem' }}>
-                  <span>Artículos: </span><strong className="text-dark">{totalArticulos}</strong>
-                </div>
+                <div className="d-flex justify-content-between text-secondary mb-2" style={{ fontSize: '0.75rem' }}><span>Artículos: </span><strong className="text-dark">{totalArticulos}</strong></div>
                 <div className="d-grid gap-2">
                   <button className="btn btn-sm fw-bold py-2 text-white shadow-sm" style={{ backgroundColor: colorBordo, borderRadius: '6px' }} tabIndex="-1" onClick={() => { if (carrito.length > 0) setMostrarFacturacion(true); }} disabled={carrito.length === 0}>💳 Facturar (F12)</button>
                   <button className="btn btn-sm btn-light border-secondary border-opacity-25 fw-bold py-2 text-dark shadow-sm" style={{ borderRadius: '6px' }} tabIndex="-1" onClick={() => { if (carrito.length > 0) setMostrarPresupuesto(true); }} disabled={carrito.length === 0}>📝 Presupuestar (F9)</button>
+                  {/* NUEVO BOTON PARA LEVANTAR PRESUPUESTOS */}
+                  <button className="btn btn-sm btn-warning bg-opacity-10 border-warning fw-bold py-2 text-dark shadow-sm mt-1" style={{ borderRadius: '6px' }} tabIndex="-1" onClick={() => setMostrarRecuperar(true)}>📋 Levantar (F8)</button>
                   <button className="btn btn-sm btn-white border fw-bold py-2 text-secondary shadow-sm" style={{ borderRadius: '6px' }} tabIndex="-1" disabled>👥 Cuentas Corrientes</button>
                   <button className="btn btn-sm btn-white border fw-bold py-2 text-secondary shadow-sm" style={{ borderRadius: '6px' }} tabIndex="-1" disabled>📦 Gestión de Stock</button>
                   <button className="btn btn-sm btn-link text-danger text-decoration-none fw-semibold p-0 mt-1 small" tabIndex="-1" onClick={vaciarCarrito}>🗑 Vaciar Carrito (F4)</button>

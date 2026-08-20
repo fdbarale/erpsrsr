@@ -144,7 +144,13 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
           pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
           const pdfBase64 = pdf.output('datauristring').split(',')[1];
 
-          const itemsHtml = comprobanteEmitido.items.map(it => `<tr><td style="padding:8px; border-bottom:1px solid #ddd;">${it.cantidad}x ${it.descripcion || it.desc || it.cod}</td><td style="padding:8px; border-bottom:1px solid #ddd; text-align:right;">${formatoMoneda((it.precio_unitario || it.precio) * it.cantidad)}</td></tr>`).join('');
+          // ACÁ AJUSTAMOS PARA QUE EN EL MAIL TAMBIÉN MUESTRE LA MARCA JUNTO A LA DESCRIPCIÓN
+          const itemsHtml = comprobanteEmitido.items.map(it => {
+            const marcaStr = it.marca ? it.marca + ' ' : '';
+            const nombreItem = `${marcaStr}${it.descripcion || it.desc || it.cod}`.trim();
+            return `<tr><td style="padding:8px; border-bottom:1px solid #ddd;">${it.cantidad}x ${nombreItem}</td><td style="padding:8px; border-bottom:1px solid #ddd; text-align:right;">${formatoMoneda((it.precio_unitario || it.precio) * it.cantidad)}</td></tr>`;
+          }).join('');
+
           const htmlCuerpo = `
             <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
               <div style="background-color: ${modoPardo ? '#212529' : '#6B1116'}; color: white; padding: 20px; text-align: center;">
@@ -240,7 +246,6 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
       const ahora = new Date();
       const fechaHoraTexto = ahora.toLocaleDateString('es-AR') + ' ' + ahora.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
 
-      // ACÁ INYECTAMOS EL NOMBRE DEL OPERADOR EN EL OBJETO FINAL
       const comprobanteData = {
         tipo: tipoComprobante, letra: letraComprobante, nroComprobante: nroGenerado,
         fecha: fechaHoraTexto, cliente: clienteSeleccionado, items: carrito,
@@ -252,7 +257,13 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
 
       if (enviarWhatsapp && whatsappDestino) {
         const telLimpio = whatsappDestino.replace(/\D/g, '');
-        const itemsTxt = carrito.map(it => `• ${it.cantidad}x ${it.descripcion || it.desc || it.cod} ($${it.precio_unitario || it.precio})`).join('%0A');
+        // ACÁ AJUSTAMOS PARA QUE EN WHATSAPP TAMBIÉN MUESTRE LA MARCA JUNTO A LA DESCRIPCIÓN
+        const itemsTxt = carrito.map(it => {
+            const marcaStr = it.marca ? it.marca + ' ' : '';
+            const nombreItem = `${marcaStr}${it.descripcion || it.desc || it.cod}`.trim();
+            return `• ${it.cantidad}x ${nombreItem} ($${it.precio_unitario || it.precio})`;
+        }).join('%0A');
+
         const mensajeWpp = `Hola ${clienteSeleccionado.nombre}, te adjuntamos el detalle de tu compra:%0A%0A*${nroGenerado}*%0ATotal: ${formatoMoneda(resumen.totalFisicoCobrado)}%0A%0A*Detalle:*%0A${itemsTxt}%0A%0A¡Muchas gracias por elegirnos!`;
         window.open(`https://api.whatsapp.com/send?phone=${telLimpio}&text=${mensajeWpp}`, '_blank');
       }
@@ -362,7 +373,7 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
           <div className="card-footer bg-white d-flex justify-content-between align-items-center p-4" style={{ borderBottomLeftRadius: '12px', borderBottomRightRadius: '12px' }}>
             <button className="btn btn-outline-secondary fw-bold px-4 py-2" onClick={cerrar} disabled={procesando}>Volver</button>
             <button className="btn fw-bold px-5 py-3 shadow text-white" style={{ backgroundColor: modoPardo ? colorPardo : colorBordo, fontSize: '1.15rem', opacity: resumen.estaCuadrado ? 1 : 0.5 }} onClick={manejarEmision} disabled={procesando || !resumen.estaCuadrado}>
-              {procesando ? 'PROCESANDO...' : (modoPardo ? 'GENERAR PRESUPUESTO (X)' : 'FACTURAR EN AFIP')}
+              {procesando ? 'PROCESANDO...' : (modoPardo ? 'GENERAR COMPROBANTE (X)' : 'FACTURAR EN AFIP')}
             </button>
           </div>
         </div>
