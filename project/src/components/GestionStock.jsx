@@ -46,7 +46,9 @@ export default function GestionStock({ volverAlMenu }) {
   const [marcaPorDefecto, setMarcaPorDefecto] = useState(''); 
   const [separadorManual, setSeparadorManual] = useState('ESPACIOS'); 
   const [filasASaltear, setFilasASaltear] = useState(0);
+  
   const [procesandoCsv, setProcesandoCsv] = useState(false);
+  const [leyendoArchivo, setLeyendoArchivo] = useState(false); 
 
   const [previewFilas, setPreviewFilas] = useState([]); 
   const [datosCrudosExtraidos, setDatosCrudosExtraidos] = useState([]); 
@@ -56,7 +58,6 @@ export default function GestionStock({ volverAlMenu }) {
   const formatoMoneda = (valor) => "$ " + parseFloat(valor || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const redondear = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
 
-  // LECTURA DE PROVEEDORES
   useEffect(() => {
     const cargarProveedores = async () => {
       const { data } = await dbOficial.from('proveedores_distribuidores').select('*').order('nombre');
@@ -65,23 +66,16 @@ export default function GestionStock({ volverAlMenu }) {
     cargarProveedores();
   }, [mostrarImportador, mostrarMarcas]); 
 
-  // FUNCION AUXILIAR PARA OBTENER ALIAS VISUAL DE MARCA
-  const getMarcaAlias = (provNombre, marcaOriginal) => {
-    if (!marcaOriginal) return '-';
-    const p = proveedores.find(x => x.nombre === provNombre);
-    if (p && p.descuentos_marcas && p.descuentos_marcas[marcaOriginal]) {
-      return p.descuentos_marcas[marcaOriginal].alias || marcaOriginal;
-    }
-    return marcaOriginal;
-  };
-
-  // === BÚSQUEDA LOCAL ===
+  // === BÚSQUEDA STOCK LOCAL ===
   useEffect(() => {
     const buscarLocal = async () => {
       let query = dbOficial.from('articulos').select('*').or('internalizado.eq.true,stock.gt.0,codigo_aux.not.is.null').order('desc');
       if (busquedaLocal.trim()) {
-        const t = `%${busquedaLocal.trim()}%`;
-        query = query.or(`cod.ilike.${t},desc.ilike.${t},codigo_aux.ilike.${t},nro_original.ilike.${t},marca.ilike.${t}`);
+        const terminos = busquedaLocal.trim().split(/\s+/);
+        terminos.forEach(termino => {
+          const t = `%${termino}%`;
+          query = query.or(`cod.ilike.${t},desc.ilike.${t},codigo_aux.ilike.${t},nro_original.ilike.${t},marca.ilike.${t}`);
+        });
       }
       const { data, error } = await query.limit(100);
       if (!error && data) setStockLocal(data);
@@ -102,8 +96,11 @@ export default function GestionStock({ volverAlMenu }) {
       }
       
       if (busquedaCatalogo.trim()) {
-        const t = `%${busquedaCatalogo.trim()}%`;
-        query = query.or(`cod.ilike.${t},desc.ilike.${t},nro_original.ilike.${t},marca.ilike.${t},codigo_aux.ilike.${t}`);
+        const terminos = busquedaCatalogo.trim().split(/\s+/);
+        terminos.forEach(termino => {
+          const t = `%${termino}%`;
+          query = query.or(`cod.ilike.${t},desc.ilike.${t},nro_original.ilike.${t},marca.ilike.${t},codigo_aux.ilike.${t}`);
+        });
       }
       const { data, error } = await query.limit(60);
       if (!error && data) setCatalogo(data);
@@ -120,18 +117,10 @@ export default function GestionStock({ volverAlMenu }) {
     const pPub = parseFloat(item.precio) || redondear(costoConIva * (1 + (mrg / 100)));
 
     setItemParaInternalizar({
-      ...item,
-      desc: item.desc || '',
-      codigo_aux: item.codigo_aux || '',
-      unidades_por_bulto: item.unidades_por_bulto || 1,
-      unidad_envase: item.unidad_envase || 1,
-      stock_ingreso: 0,
-      precio_lista_base: parseFloat(item.precio_lista) || 0,
-      costo_original_bulto_con_iva: costoConIva,
-      costo_sin_iva_unitario: costoSinIva,
-      costo_con_iva_unitario: costoConIva,
-      margen: mrg,
-      precio_venta: pPub
+      ...item, desc: item.desc || '', codigo_aux: item.codigo_aux || '',
+      unidades_por_bulto: item.unidades_por_bulto || 1, unidad_envase: item.unidad_envase || 1, stock_ingreso: 0,
+      precio_lista_base: parseFloat(item.precio_lista) || 0, costo_original_bulto_con_iva: costoConIva,
+      costo_sin_iva_unitario: costoSinIva, costo_con_iva_unitario: costoConIva, margen: mrg, precio_venta: pPub
     });
   };
 
@@ -143,12 +132,8 @@ export default function GestionStock({ volverAlMenu }) {
     const precioFinal = redondear(costoConIvaUnit * (1 + (margen / 100)));
 
     setItemParaInternalizar(prev => ({
-      ...prev,
-      unidades_por_bulto: cantBulto,
-      costo_sin_iva_unitario: costoSinIvaUnit,
-      costo_con_iva_unitario: costoConIvaUnit,
-      margen: margen,
-      precio_venta: precioFinal
+      ...prev, unidades_por_bulto: cantBulto, costo_sin_iva_unitario: costoSinIvaUnit,
+      costo_con_iva_unitario: costoConIvaUnit, margen: margen, precio_venta: precioFinal
     }));
   };
 
@@ -163,9 +148,9 @@ export default function GestionStock({ volverAlMenu }) {
       stock: (parseFloat(itemParaInternalizar.stock) || 0) + (parseFloat(itemParaInternalizar.stock_ingreso) || 0),
       internalizado: true
     };
-
     const { error } = await dbOficial.from('articulos').update(payload).eq('cod', itemParaInternalizar.cod);
     if (!error) {
+      alert("✅ Artículo internalizado en la estantería.");
       setStockLocal(prev => [{ ...itemParaInternalizar, ...payload }, ...prev.filter(x => x.cod !== itemParaInternalizar.cod)]);
       setItemParaInternalizar(null);
     } else alert("Error al internalizar el artículo.");
@@ -173,7 +158,7 @@ export default function GestionStock({ volverAlMenu }) {
 
   // === EDICIÓN Y BORRADO LOCAL ===
   const borrarDelLocal = async (cod) => {
-    if (!window.confirm("¿Seguro querés quitar este repuesto de tu estantería local? (Seguirá existiendo en el catálogo del proveedor)")) return;
+    if (!window.confirm("¿Seguro querés quitar este repuesto de tu estantería local?")) return;
     const { error } = await dbOficial.from('articulos').update({ internalizado: false, stock: 0 }).eq('cod', cod);
     if (!error) setStockLocal(prev => prev.filter(x => x.cod !== cod));
     else alert("Error al borrar.");
@@ -184,21 +169,17 @@ export default function GestionStock({ volverAlMenu }) {
     const costoSinIva = redondear(costoConIva / 1.21);
     setItemParaEditar({
       ...item, desc: item.desc || '', codigo_aux: item.codigo_aux || '', marca: item.marca || '',
-      costo_sin_iva: costoSinIva, precio_costo: costoConIva, precio: item.precio || 0,
-      stock: item.stock || 0, unidad_envase: item.unidad_envase || 1, unidades_por_bulto: item.unidades_por_bulto || 1
+      costo_sin_iva: costoSinIva, precio_costo: costoConIva, precio: item.precio || 0, stock: item.stock || 0, 
+      unidad_envase: item.unidad_envase || 1, unidades_por_bulto: item.unidades_por_bulto || 1
     });
   };
 
   const guardarEdicionCompleta = async () => {
     const payload = {
-      desc: itemParaEditar.desc.toUpperCase(),
-      codigo_aux: itemParaEditar.codigo_aux ? itemParaEditar.codigo_aux.toUpperCase() : null,
-      marca: itemParaEditar.marca ? itemParaEditar.marca.toUpperCase() : null,
-      precio_costo: parseFloat(itemParaEditar.precio_costo) || 0,
-      precio: parseFloat(itemParaEditar.precio) || 0,
-      stock: parseFloat(itemParaEditar.stock) || 0,
-      unidad_envase: parseFloat(itemParaEditar.unidad_envase) || 1,
-      unidades_por_bulto: parseFloat(itemParaEditar.unidades_por_bulto) || 1,
+      desc: itemParaEditar.desc.toUpperCase(), codigo_aux: itemParaEditar.codigo_aux ? itemParaEditar.codigo_aux.toUpperCase() : null,
+      marca: itemParaEditar.marca ? itemParaEditar.marca.toUpperCase() : null, precio_costo: parseFloat(itemParaEditar.precio_costo) || 0,
+      precio: parseFloat(itemParaEditar.precio) || 0, stock: parseFloat(itemParaEditar.stock) || 0,
+      unidad_envase: parseFloat(itemParaEditar.unidad_envase) || 1, unidades_por_bulto: parseFloat(itemParaEditar.unidades_por_bulto) || 1,
       internalizado: true
     };
     const { error } = await dbOficial.from('articulos').update(payload).eq('cod', itemParaEditar.cod);
@@ -242,11 +223,10 @@ export default function GestionStock({ volverAlMenu }) {
     setMostrarCascada(false); setD1(''); setD2(''); setD3('');
   };
 
-  // === GESTIÓN DE MARCAS (NUEVA LÓGICA CON ALIAS) ===
+  // === GESTIÓN DE MARCAS ===
   useEffect(() => {
     if (provMarcasId) {
       const p = proveedores.find(x => x.id.toString() === provMarcasId);
-      // Migración invisible por si quedaron datos viejos: {"MARCA": 10} pasa a {"MARCA": {descuento: 10, alias: "MARCA"}}
       let dbMarcas = p?.descuentos_marcas || {};
       for (let k in dbMarcas) {
         if (typeof dbMarcas[k] === 'number') dbMarcas[k] = { descuento: dbMarcas[k], alias: k };
@@ -261,21 +241,21 @@ export default function GestionStock({ volverAlMenu }) {
     if (marcaOri && dictMarcas[marcaOri]) {
       setEdicionMarcaDesc(dictMarcas[marcaOri].descuento || 0);
       setEdicionMarcaAlias(dictMarcas[marcaOri].alias || marcaOri);
-    } else {
-      setEdicionMarcaDesc(''); setEdicionMarcaAlias('');
-    }
+    } else { setEdicionMarcaDesc(''); setEdicionMarcaAlias(''); }
   };
 
   const actualizarMarcaDict = () => {
     if (!marcaSeleccionadaEdicion) return;
     setDictMarcas(prev => ({ 
-      ...prev, 
-      [marcaSeleccionadaEdicion]: { 
-        descuento: parseFloat(edicionMarcaDesc) || 0, 
-        alias: edicionMarcaAlias.trim().toUpperCase() || marcaSeleccionadaEdicion 
-      } 
+      ...prev, [marcaSeleccionadaEdicion]: { descuento: parseFloat(edicionMarcaDesc) || 0, alias: edicionMarcaAlias.trim().toUpperCase() || marcaSeleccionadaEdicion } 
     }));
     setMarcaSeleccionadaEdicion(''); setEdicionMarcaDesc(''); setEdicionMarcaAlias('');
+  };
+
+  const eliminarMarcaDict = (marcaOriginal) => {
+    let nuevoDict = { ...dictMarcas };
+    delete nuevoDict[marcaOriginal];
+    setDictMarcas(nuevoDict);
   };
 
   const guardarDictMarcas = async () => {
@@ -292,7 +272,6 @@ export default function GestionStock({ volverAlMenu }) {
       for (const a of arts) {
         const infoMarca = dictMarcas[a.marca] || { descuento: 0 };
         const descMarca = infoMarca.descuento || 0;
-        // Recalculamos desde el precio de lista virgen guardado
         const costoPostMarca = a.precio_lista * (1 - (descMarca / 100));
         const costoNeto = costoPostMarca * (1 - ((p.desc_general||0) / 100));
         const costoFinal = p.iva_incluido ? costoNeto : (costoNeto * 1.21);
@@ -306,13 +285,21 @@ export default function GestionStock({ volverAlMenu }) {
     setMostrarMarcas(false);
   };
 
+  const getMarcaAlias = (provNombre, marcaOriginal) => {
+    if (!marcaOriginal) return '-';
+    const p = proveedores.find(x => x.nombre === provNombre);
+    if (p && p.descuentos_marcas && p.descuentos_marcas[marcaOriginal]) { return p.descuentos_marcas[marcaOriginal].alias || marcaOriginal; }
+    return marcaOriginal;
+  };
 
-  // === LECTOR ARCHIVOS Y PREVIEW ===
+  // === IMPORTADOR Y PREVIEW ===
   useEffect(() => {
     if (datosCrudosExtraidos.length > 0) {
       const skip = Math.max(0, parseInt(filasASaltear) || 0);
       setPreviewFilas(datosCrudosExtraidos.slice(skip, skip + 6));
-    } else setPreviewFilas([]);
+    } else {
+      setPreviewFilas([]);
+    }
   }, [datosCrudosExtraidos, filasASaltear]);
 
   useEffect(() => {
@@ -327,38 +314,57 @@ export default function GestionStock({ volverAlMenu }) {
     }
   }, [provSeleccionadoCsv, proveedores]);
 
-  useEffect(() => { if (archivoCsv) procesarArchivo(archivoCsv, separadorManual); }, [archivoCsv, separadorManual]); // eslint-disable-line
+  const procesarArchivo = (file, delimiterChar) => {
+    setLeyendoArchivo(true); 
+    setDatosCrudosExtraidos([]);
+    setPreviewFilas([]);
 
-  const procesarArchivo = async (file, delimiterChar) => {
-    const extension = file.name.split('.').pop().toLowerCase();
-    if (extension === 'csv' || extension === 'txt') {
-      if (delimiterChar === 'ESPACIOS') {
+    setTimeout(() => {
+      const extension = file.name.split('.').pop().toLowerCase();
+      
+      if (extension === 'csv' || extension === 'txt') {
+        if (delimiterChar === 'ESPACIOS') {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const cleanedText = event.target.result.replace(/[ \t]{2,}/g, '|');
+            Papa.parse(cleanedText, { 
+              delimiter: '|', header: false, skipEmptyLines: true, 
+              complete: (res) => { if (res.data.length > 0) setDatosCrudosExtraidos(res.data); setLeyendoArchivo(false); },
+              error: () => setLeyendoArchivo(false)
+            });
+          };
+          reader.readAsText(file);
+        } else {
+          Papa.parse(file, { 
+            delimiter: delimiterChar === 'TAB' ? '\t' : delimiterChar, header: false, skipEmptyLines: true, 
+            complete: (res) => { if (res.data.length > 0) setDatosCrudosExtraidos(res.data); setLeyendoArchivo(false); },
+            error: () => setLeyendoArchivo(false)
+          });
+        }
+      } else if (extension === 'dbf') {
+        file.arrayBuffer().then(buffer => {
+          try {
+            const parser = new DBFParser(buffer);
+            const campos = parser.fields.map(f => f.name);
+            setDatosCrudosExtraidos([campos, ...parser.records.map(r => campos.map(c => r[c]))]); 
+          } catch (err) { alert("Error leyendo DBF."); }
+          setLeyendoArchivo(false);
+        });
+      } else if (extension === 'xlsx' || extension === 'xls') {
         const reader = new FileReader();
         reader.onload = (event) => {
-          const cleanedText = event.target.result.replace(/[ \t]{2,}/g, '|');
-          Papa.parse(cleanedText, { delimiter: '|', header: false, skipEmptyLines: true, complete: (res) => { if (res.data.length > 0) setDatosCrudosExtraidos(res.data); } });
+          try {
+            const workbook = XLSX.read(new Uint8Array(event.target.result), { type: 'array' });
+            const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, defval: "" });
+            if (json.length > 0) setDatosCrudosExtraidos(json);
+          } catch (error) { alert("Error leyendo Excel."); }
+          setLeyendoArchivo(false); 
         };
-        reader.readAsText(file);
-      } else {
-        Papa.parse(file, { delimiter: delimiterChar === 'TAB' ? '\t' : delimiterChar, header: false, skipEmptyLines: true, complete: (res) => { if (res.data.length > 0) setDatosCrudosExtraidos(res.data); } });
+        reader.readAsArrayBuffer(file);
+      } else { 
+        alert("Formato no soportado."); setArchivoCsv(null); setLeyendoArchivo(false); 
       }
-    } else if (extension === 'dbf') {
-      try {
-        const parser = new DBFParser(await file.arrayBuffer());
-        const campos = parser.fields.map(f => f.name);
-        setDatosCrudosExtraidos([campos, ...parser.records.map(r => campos.map(c => r[c]))]); 
-      } catch (err) { alert("Error leyendo DBF."); }
-    } else if (extension === 'xlsx' || extension === 'xls') {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        try {
-          const workbook = XLSX.read(new Uint8Array(event.target.result), { type: 'array' });
-          const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, defval: "" });
-          if (json.length > 0) setDatosCrudosExtraidos(json);
-        } catch (error) { alert("Error leyendo Excel."); }
-      };
-      reader.readAsArrayBuffer(file);
-    } else { alert("Formato no soportado."); setArchivoCsv(null); }
+    }, 150);
   };
 
   const asignarColumnaAMolde = (index, campo) => {
@@ -366,6 +372,7 @@ export default function GestionStock({ volverAlMenu }) {
     n[campo] = index; setMolde(n);
   };
   const obtenerCampoAsignado = (index) => Object.keys(molde).find(key => molde[key] === index && key.startsWith('col_')) || "";
+
   const limpiarNumeroFiltro = (valorOriginal, regla) => {
     if (!valorOriginal) return 0;
     let str = valorOriginal.toString().trim();
@@ -375,17 +382,19 @@ export default function GestionStock({ volverAlMenu }) {
   };
   const extraerMarcaDeCosto = (v) => { if (!v) return null; const match = v.toString().trim().match(/[a-zA-Z]+/g); return match ? match.join(' ').toUpperCase() : null; };
 
-  // === EJECUCIÓN DEL BARRIDO MASIVO ===
   const ejecutarBarridoMasivo = async () => {
     if (molde.col_cod === -1 || molde.col_desc === -1 || molde.col_costo === -1) return alert("Falta asignar Código, Descripción y Costo.");
     if (datosCrudosExtraidos.length === 0) return alert("No hay datos cargados.");
     setProcesandoCsv(true);
     
+    const configAGuardar = { ...molde, filas_a_saltear: Math.max(0, parseInt(filasASaltear) || 0) };
+    await dbOficial.from('proveedores_distribuidores').update({ 
+      config_columnas: configAGuardar, desc_general: descuentoProvCsv, iva_incluido: listaIncluyeIva 
+    }).eq('id', provSeleccionadoCsv);
+
     const prov = proveedores.find(p => p.id.toString() === provSeleccionadoCsv);
     const provNombre = prov?.nombre || 'GENERAL';
-    let dictMarcasAct = prov?.descuentos_marcas || {};
-    // Garantizamos formato de objeto para las marcas
-    for (let k in dictMarcasAct) { if (typeof dictMarcasAct[k] === 'number') dictMarcasAct[k] = { descuento: dictMarcasAct[k], alias: k }; }
+    const dictMarcasAct = prov?.descuentos_marcas || {};
 
     let mapaDescripcionesExistentes = new Map();
     if (!actualizarDescripciones) {
@@ -435,16 +444,9 @@ export default function GestionStock({ volverAlMenu }) {
       mapUnicos.set(articuloInfo.cod, articuloInfo);
     }
 
-    // Auto-registrar marcas nuevas en el JSON del proveedor
-    marcasEnArchivo.forEach(m => {
-      if (!dictMarcasAct[m]) dictMarcasAct[m] = { descuento: 0, alias: m };
-    });
+    marcasEnArchivo.forEach(m => { if (!dictMarcasAct[m]) dictMarcasAct[m] = { descuento: 0, alias: m }; });
 
-    // Guardar config del proveedor + marcas descubiertas
-    const configAGuardar = { ...molde, filas_a_saltear: Math.max(0, parseInt(filasASaltear) || 0) };
-    await dbOficial.from('proveedores_distribuidores').update({ 
-      config_columnas: configAGuardar, desc_general: descuentoProvCsv, iva_incluido: listaIncluyeIva, descuentos_marcas: dictMarcasAct 
-    }).eq('id', provSeleccionadoCsv);
+    await dbOficial.from('proveedores_distribuidores').update({ descuentos_marcas: dictMarcasAct }).eq('id', provSeleccionadoCsv);
 
     const upsertsLimpio = Array.from(mapUnicos.values());
     if (upsertsLimpio.length === 0) { setProcesandoCsv(false); return alert("Falló la extracción. Verificá las columnas seleccionadas."); }
@@ -461,19 +463,29 @@ export default function GestionStock({ volverAlMenu }) {
     setMostrarImportador(false); setArchivoCsv(null); setPreviewFilas([]); setDatosCrudosExtraidos([]);
   };
 
-  // === RENDERIZADO ===
   return (
     <div className="bg-light min-vh-100 d-flex flex-column p-3">
-      {/* BARRA SUPERIOR */}
-      <div className="d-flex justify-content-between align-items-center border-bottom pb-2 mb-3 bg-white p-3 rounded shadow-sm">
-        <div>
-          <h4 className="fw-bold text-dark m-0">📦 Gestión de Stock y Catálogos</h4>
-          <p className="text-muted small m-0">Precios transparentes: Lista, Costo s/IVA, Costo c/IVA y Venta Final</p>
+      {/* BARRA SUPERIOR NUEVA (Botón a la izquierda y borde bordó) */}
+      <div className="d-flex justify-content-between align-items-center mb-3 bg-white p-3 rounded shadow-sm" style={{ borderTop: '5px solid #800000' }}>
+        <div className="d-flex align-items-center gap-3">
+          <button className="btn btn-outline-secondary fw-bold shadow-sm" onClick={volverAlMenu}>
+            ⬅ Volver
+          </button>
+          <div>
+            <h4 className="fw-bold text-dark m-0">📦 Gestión de Stock y Catálogos</h4>
+            <p className="text-muted small m-0">Precios transparentes: Lista, Costo s/IVA, Costo c/IVA y Venta Final</p>
+          </div>
         </div>
         <div className="d-flex gap-2">
-          <button className="btn btn-sm text-white fw-bold shadow-sm" style={{ backgroundColor: '#6f42c1' }} onClick={() => setMostrarMarcas(true)}>🏷️ Desc. por Marca</button>
-          <button className="btn btn-sm btn-success fw-bold shadow-sm" onClick={() => { setMostrarImportador(true); setArchivoCsv(null); setPreviewFilas([]); }}>📥 Importar Lista</button>
-          <button className="btn btn-sm btn-outline-secondary fw-bold" onClick={volverAlMenu}>Volver al Menú</button>
+          <button className="btn btn-sm btn-dark fw-bold shadow-sm" onClick={() => setAltaManualForm({ distribuidor: '', cod: '', desc: '', marca: '', codigo_aux: '', precio_costo: '', margen_ganancia: 74, stock: 0 })}>
+            + Alta Manual
+          </button>
+          <button className="btn btn-sm text-white fw-bold shadow-sm" style={{ backgroundColor: '#6f42c1' }} onClick={() => setMostrarMarcas(true)}>
+            🏷️ Desc. por Marca
+          </button>
+          <button className="btn btn-sm btn-success fw-bold shadow-sm" onClick={() => { setMostrarImportador(true); setArchivoCsv(null); setPreviewFilas([]); setLeyendoArchivo(false); }}>
+            📥 Importar Lista
+          </button>
         </div>
       </div>
 
@@ -490,7 +502,7 @@ export default function GestionStock({ volverAlMenu }) {
           
           <div className="overflow-auto border rounded bg-white shadow-sm flex-grow-1" style={{ maxHeight: '72vh' }}>
             <ul className="list-group list-group-flush">
-              {catalogo.length === 0 && <li className="list-group-item text-center text-muted small py-5">Escribí en el buscador superior para explorar repuestos de distribuidoras.</li>}
+              {catalogo.length === 0 && <li className="list-group-item text-center text-muted small py-5">Escribí en el buscador para explorar repuestos.</li>}
               {catalogo.map((item, idx) => {
                 const costoConIva = parseFloat(item.precio_costo) || 0;
                 const costoSinIva = redondear(costoConIva / 1.21);
@@ -526,7 +538,7 @@ export default function GestionStock({ volverAlMenu }) {
           </div>
         </div>
 
-        {/* COLUMNA DERECHA: ESTANTERÍA DEL LOCAL */}
+        {/* COLUMNA DERECHA: ESTANTERÍA */}
         <div className="col-7 ps-2 d-flex flex-column">
           <div className="bg-white p-2 rounded shadow-sm mb-2 d-flex justify-content-between align-items-center">
             <h6 className="fw-bold text-dark m-0 text-uppercase small">🏪 Estantería del Local</h6>
@@ -537,15 +549,7 @@ export default function GestionStock({ volverAlMenu }) {
             <table className="table table-sm table-hover mb-0 align-middle" style={{ fontSize: '11px' }}>
               <thead className="table-dark sticky-top">
                 <tr>
-                  <th className="ps-2">Cód</th>
-                  <th>Descripción</th>
-                  <th>Marca</th>
-                  <th><span className="text-warning">Maestro</span></th>
-                  <th className="text-end text-muted">Costo s/IVA</th>
-                  <th className="text-end text-danger">Costo c/IVA</th>
-                  <th className="text-end text-success">Público Final</th>
-                  <th className="text-center">Stock</th>
-                  <th className="text-center" style={{width:'50px'}}>Acción</th>
+                  <th className="ps-2">Cód</th><th>Descripción</th><th>Marca</th><th><span className="text-warning">Maestro</span></th><th className="text-end text-muted">Costo s/IVA</th><th className="text-end text-danger">Costo c/IVA</th><th className="text-end text-success">Público Final</th><th className="text-center">Stock</th><th className="text-center" style={{width:'50px'}}>Acción</th>
                 </tr>
               </thead>
               <tbody>
@@ -555,28 +559,21 @@ export default function GestionStock({ volverAlMenu }) {
                   const marcaVisual = getMarcaAlias(item.distribuidor, item.marca);
                   return (
                     <tr key={idx}>
-                      <td className="font-monospace fw-bold text-primary ps-2">
-                        <div className="text-truncate" style={{maxWidth: '75px'}} title={item.cod}>{item.cod}</div>
-                        <div className="text-muted" style={{fontSize: '9px'}}>{item.distribuidor?.substring(0,8)}</div>
-                      </td>
+                      <td className="font-monospace fw-bold text-primary ps-2"><div className="text-truncate" style={{maxWidth: '75px'}} title={item.cod}>{item.cod}</div><div className="text-muted" style={{fontSize: '9px'}}>{item.distribuidor?.substring(0,8)}</div></td>
                       <td className="fw-bold text-dark text-truncate" style={{maxWidth:'130px'}} title={item.desc}>{item.desc}</td>
                       <td onDoubleClick={() => iniciarEdicionEnLinea(item.cod, 'marca', item.marca)}>{celdaEditando?.cod === item.cod && celdaEditando?.campo === 'marca' ? <input className="form-control form-control-sm text-uppercase" autoFocus value={valorCeldaTemporal} onChange={e => setValorCeldaTemporal(e.target.value)} onKeyDown={(e) => manejarTecladoEdicion(e, item.cod, 'marca')} onBlur={() => guardarEdicionEnLinea(item.cod, 'marca')} /> : <span className="badge bg-light text-dark border" title={`Original: ${item.marca}`}>{marcaVisual || '-'}</span>}</td>
                       <td onDoubleClick={() => iniciarEdicionEnLinea(item.cod, 'codigo_aux', item.codigo_aux)} className="bg-warning bg-opacity-10">{celdaEditando?.cod === item.cod && celdaEditando?.campo === 'codigo_aux' ? <input className="form-control form-control-sm font-monospace text-uppercase" autoFocus value={valorCeldaTemporal} onChange={e => setValorCeldaTemporal(e.target.value)} onKeyDown={(e) => manejarTecladoEdicion(e, item.cod, 'codigo_aux')} onBlur={() => guardarEdicionEnLinea(item.cod, 'codigo_aux')} /> : <span className="font-monospace fw-bold text-dark">{item.codigo_aux || '+'}</span>}</td>
-                      
                       <td className="text-end text-muted font-monospace">{formatoMoneda(costoSinIva)}</td>
                       <td className="text-end" onDoubleClick={() => iniciarEdicionEnLinea(item.cod, 'precio_costo', item.precio_costo)}>{celdaEditando?.cod === item.cod && celdaEditando?.campo === 'precio_costo' ? <input type="number" className="form-control form-control-sm text-end text-danger" autoFocus value={valorCeldaTemporal} onChange={e => setValorCeldaTemporal(e.target.value)} onKeyDown={(e) => manejarTecladoEdicion(e, item.cod, 'precio_costo')} onBlur={() => guardarEdicionEnLinea(item.cod, 'precio_costo')} /> : <span className="text-danger fw-bold font-monospace">{formatoMoneda(costoConIva)}</span>}</td>
                       <td className="text-end bg-success bg-opacity-10" onDoubleClick={() => iniciarEdicionEnLinea(item.cod, 'precio', item.precio)}>{celdaEditando?.cod === item.cod && celdaEditando?.campo === 'precio' ? <input type="number" className="form-control form-control-sm text-end text-success" autoFocus value={valorCeldaTemporal} onChange={e => setValorCeldaTemporal(e.target.value)} onKeyDown={(e) => manejarTecladoEdicion(e, item.cod, 'precio')} onBlur={() => guardarEdicionEnLinea(item.cod, 'precio')} /> : <span className="text-success fw-bold font-monospace">{formatoMoneda(item.precio)}</span>}</td>
-
                       <td className="text-center" onDoubleClick={() => iniciarEdicionEnLinea(item.cod, 'stock', item.stock)}>{celdaEditando?.cod === item.cod && celdaEditando?.campo === 'stock' ? <input type="number" className="form-control form-control-sm text-center mx-auto" style={{maxWidth:'45px'}} autoFocus value={valorCeldaTemporal} onChange={e => setValorCeldaTemporal(e.target.value)} onKeyDown={(e) => manejarTecladoEdicion(e, item.cod, 'stock')} onBlur={() => guardarEdicionEnLinea(item.cod, 'stock')} /> : <span className={`badge ${item.stock > 0 ? 'bg-primary' : 'bg-secondary'}`}>{item.stock}</span>}</td>
-
                       <td className="text-center">
-                        <button className="btn btn-sm btn-outline-dark py-0 px-1 border-0" title="Editar Repuesto" onClick={() => abrirModalEdicion(item)}>✏️</button>
-                        <button className="btn btn-sm btn-outline-danger py-0 px-1 border-0" title="Quitar de Estantería" onClick={() => borrarDelLocal(item.cod)}>🗑️</button>
+                        <button className="btn btn-sm btn-outline-dark py-0 px-1 border-0" title="Editar" onClick={() => abrirModalEdicion(item)}>✏️</button>
+                        <button className="btn btn-sm btn-outline-danger py-0 px-1 border-0" title="Quitar" onClick={() => borrarDelLocal(item.cod)}>🗑️</button>
                       </td>
                     </tr>
                   );
                 })}
-                {stockLocal.length === 0 && <tr><td colSpan="9" className="text-center py-5 text-muted">Aún no hay repuestos en la estantería.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -584,7 +581,7 @@ export default function GestionStock({ volverAlMenu }) {
       </div>
 
       {/* ========================================================
-          MODALES DE FUNCIONALIDAD
+          MODALES
       ======================================================== */}
 
       {/* 1. MODAL INTERNALIZAR */}
@@ -604,50 +601,24 @@ export default function GestionStock({ volverAlMenu }) {
               <div className="col-4"><label className="small fw-bold text-danger">Costo con IVA Bulto</label><input type="text" className="form-control fw-bold bg-light text-danger" disabled value={formatoMoneda(itemParaInternalizar.costo_original_bulto_con_iva)} /></div>
             </div>
 
-            {/* FRACCIONAMIENTO */}
             <div className="p-3 bg-light rounded border mb-3">
               <h6 className="fw-bold text-dark small border-bottom pb-1 mb-2">📦 Fraccionamiento y Logística</h6>
               <div className="row g-2">
-                <div className="col-6">
-                  <label className="small fw-bold text-primary">Unidades por Bulto (Divisor)</label>
-                  <input type="number" min="1" className="form-control text-center fw-bold border-primary" value={itemParaInternalizar.unidades_por_bulto} onChange={e => recalcularInternalizacion(e.target.value, itemParaInternalizar.margen)} />
-                </div>
-                <div className="col-6">
-                  <label className="small fw-bold text-secondary">Unidad Envase (Mínimo a pedir)</label>
-                  <input type="number" min="1" className="form-control text-center fw-bold" value={itemParaInternalizar.unidad_envase} onChange={e => setItemParaInternalizar({...itemParaInternalizar, unidad_envase: parseFloat(e.target.value)||1})} />
-                </div>
+                <div className="col-6"><label className="small fw-bold text-primary">Unidades por Bulto (Divisor)</label><input type="number" min="1" className="form-control text-center fw-bold border-primary" value={itemParaInternalizar.unidades_por_bulto} onChange={e => recalcularInternalizacion(e.target.value, itemParaInternalizar.margen)} /></div>
+                <div className="col-6"><label className="small fw-bold text-secondary">Unidad Envase (Mínimo a pedir)</label><input type="number" min="1" className="form-control text-center fw-bold" value={itemParaInternalizar.unidad_envase} onChange={e => setItemParaInternalizar({...itemParaInternalizar, unidad_envase: parseFloat(e.target.value)||1})} /></div>
               </div>
             </div>
 
-            {/* DESGLOSE MATEMÁTICO */}
             <div className="row g-2 mb-3 p-2 border rounded bg-white">
-              <div className="col-3">
-                <label className="small fw-bold text-muted">Costo Unit. s/IVA</label>
-                <input type="text" className="form-control form-control-sm font-monospace bg-light text-muted" disabled value={formatoMoneda(itemParaInternalizar.costo_sin_iva_unitario)} />
-              </div>
-              <div className="col-3">
-                <label className="small fw-bold text-danger">Costo Unit. c/IVA</label>
-                <input type="text" className="form-control form-control-sm font-monospace fw-bold text-danger bg-light" disabled value={formatoMoneda(itemParaInternalizar.costo_con_iva_unitario)} />
-              </div>
-              <div className="col-3">
-                <label className="small fw-bold text-dark">Ganancia (%)</label>
-                <input type="number" className="form-control form-control-sm text-center fw-bold" value={itemParaInternalizar.margen} onChange={e => recalcularInternalizacion(itemParaInternalizar.unidades_por_bulto, e.target.value)} />
-              </div>
-              <div className="col-3">
-                <label className="small fw-bold text-success">Público Final ($)</label>
-                <input type="number" className="form-control form-control-sm fw-bold text-success border-success" value={itemParaInternalizar.precio_venta} onChange={e => setItemParaInternalizar({...itemParaInternalizar, precio_venta: parseFloat(e.target.value)||0})} />
-              </div>
+              <div className="col-3"><label className="small fw-bold text-muted">Costo Unit. s/IVA</label><input type="text" className="form-control form-control-sm font-monospace bg-light text-muted" disabled value={formatoMoneda(itemParaInternalizar.costo_sin_iva_unitario)} /></div>
+              <div className="col-3"><label className="small fw-bold text-danger">Costo Unit. c/IVA</label><input type="text" className="form-control form-control-sm font-monospace fw-bold text-danger bg-light" disabled value={formatoMoneda(itemParaInternalizar.costo_con_iva_unitario)} /></div>
+              <div className="col-3"><label className="small fw-bold text-dark">Ganancia (%)</label><input type="number" className="form-control form-control-sm text-center fw-bold" value={itemParaInternalizar.margen} onChange={e => recalcularInternalizacion(itemParaInternalizar.unidades_por_bulto, e.target.value)} /></div>
+              <div className="col-3"><label className="small fw-bold text-success">Público Final ($)</label><input type="number" className="form-control form-control-sm fw-bold text-success border-success" value={itemParaInternalizar.precio_venta} onChange={e => setItemParaInternalizar({...itemParaInternalizar, precio_venta: parseFloat(e.target.value)||0})} /></div>
             </div>
 
             <div className="row g-2 mb-4 border-top pt-3">
-              <div className="col-8">
-                <label className="small fw-bold text-warning-emphasis">Cód Maestro Bálsamo (Equivalencia)</label>
-                <input type="text" className="form-control font-monospace text-uppercase border-warning" placeholder="Ej: Cód de Bálsamo" value={itemParaInternalizar.codigo_aux} onChange={e => setItemParaInternalizar({...itemParaInternalizar, codigo_aux: e.target.value})} />
-              </div>
-              <div className="col-4">
-                <label className="small fw-bold text-success">Stock en Estante</label>
-                <input type="number" className="form-control text-center fw-bold text-success border-success" value={itemParaInternalizar.stock_ingreso} onChange={e => setItemParaInternalizar({...itemParaInternalizar, stock_ingreso: e.target.value})} />
-              </div>
+              <div className="col-8"><label className="small fw-bold text-warning-emphasis">Cód Maestro Bálsamo (Equivalencia)</label><input type="text" className="form-control font-monospace text-uppercase border-warning" placeholder="Opcional..." value={itemParaInternalizar.codigo_aux} onChange={e => setItemParaInternalizar({...itemParaInternalizar, codigo_aux: e.target.value})} /></div>
+              <div className="col-4"><label className="small fw-bold text-success">Stock en Estante</label><input type="number" className="form-control text-center fw-bold text-success border-success" value={itemParaInternalizar.stock_ingreso} onChange={e => setItemParaInternalizar({...itemParaInternalizar, stock_ingreso: e.target.value})} /></div>
             </div>
 
             <div className="d-flex gap-2">
@@ -663,47 +634,18 @@ export default function GestionStock({ volverAlMenu }) {
         <div className="position-fixed top-0 start-0 w-100 h-100 bg-dark bg-opacity-75 d-flex justify-content-center align-items-center" style={{ zIndex: 2000 }}>
           <div className="card shadow-lg p-4 border-0" style={{ width: '600px', borderRadius: '12px' }}>
             <h5 className="fw-bold text-dark border-bottom pb-2 mb-3">✏️ Modificar Repuesto en Estantería</h5>
-            
-            <div className="mb-2">
-              <label className="small fw-bold text-secondary">Descripción</label>
-              <input type="text" className="form-control fw-bold text-uppercase" value={itemParaEditar.desc} onChange={e => setItemParaEditar({...itemParaEditar, desc: e.target.value})} />
-            </div>
-
+            <div className="mb-2"><label className="small fw-bold text-secondary">Descripción</label><input type="text" className="form-control fw-bold text-uppercase" value={itemParaEditar.desc} onChange={e => setItemParaEditar({...itemParaEditar, desc: e.target.value})} /></div>
             <div className="row g-2 mb-3">
-              <div className="col-4">
-                <label className="small fw-bold text-secondary">Marca</label>
-                <input type="text" className="form-control text-uppercase" value={itemParaEditar.marca} onChange={e => setItemParaEditar({...itemParaEditar, marca: e.target.value})} />
-              </div>
-              <div className="col-4">
-                <label className="small fw-bold text-danger">Costo c/IVA ($)</label>
-                <input type="number" className="form-control fw-bold text-danger" value={itemParaEditar.precio_costo} onChange={e => setItemParaEditar({...itemParaEditar, precio_costo: e.target.value})} />
-              </div>
-              <div className="col-4">
-                <label className="small fw-bold text-success">Público Final ($)</label>
-                <input type="number" className="form-control fw-bold text-success border-success" value={itemParaEditar.precio} onChange={e => setItemParaEditar({...itemParaEditar, precio: e.target.value})} />
-              </div>
+              <div className="col-4"><label className="small fw-bold text-secondary">Marca</label><input type="text" className="form-control text-uppercase" value={itemParaEditar.marca} onChange={e => setItemParaEditar({...itemParaEditar, marca: e.target.value})} /></div>
+              <div className="col-4"><label className="small fw-bold text-danger">Costo c/IVA ($)</label><input type="number" className="form-control fw-bold text-danger" value={itemParaEditar.precio_costo} onChange={e => setItemParaEditar({...itemParaEditar, precio_costo: e.target.value})} /></div>
+              <div className="col-4"><label className="small fw-bold text-success">Público Final ($)</label><input type="number" className="form-control fw-bold text-success border-success" value={itemParaEditar.precio} onChange={e => setItemParaEditar({...itemParaEditar, precio: e.target.value})} /></div>
             </div>
-
             <div className="row g-2 mb-3 p-2 bg-light rounded border">
-              <div className="col-4">
-                <label className="small fw-bold text-secondary">Stock Físico</label>
-                <input type="number" className="form-control text-center fw-bold" value={itemParaEditar.stock} onChange={e => setItemParaEditar({...itemParaEditar, stock: e.target.value})} />
-              </div>
-              <div className="col-4">
-                <label className="small fw-bold text-secondary">Unidades x Bulto</label>
-                <input type="number" className="form-control text-center fw-bold" value={itemParaEditar.unidades_por_bulto} onChange={e => setItemParaEditar({...itemParaEditar, unidades_por_bulto: e.target.value})} />
-              </div>
-              <div className="col-4">
-                <label className="small fw-bold text-secondary">Unidad de Envase</label>
-                <input type="number" className="form-control text-center fw-bold" value={itemParaEditar.unidad_envase} onChange={e => setItemParaEditar({...itemParaEditar, unidad_envase: e.target.value})} />
-              </div>
+              <div className="col-4"><label className="small fw-bold text-secondary">Stock Físico</label><input type="number" className="form-control text-center fw-bold" value={itemParaEditar.stock} onChange={e => setItemParaEditar({...itemParaEditar, stock: e.target.value})} /></div>
+              <div className="col-4"><label className="small fw-bold text-secondary">Unidades x Bulto</label><input type="number" className="form-control text-center fw-bold" value={itemParaEditar.unidades_por_bulto} onChange={e => setItemParaEditar({...itemParaEditar, unidades_por_bulto: e.target.value})} /></div>
+              <div className="col-4"><label className="small fw-bold text-secondary">Unidad de Envase</label><input type="number" className="form-control text-center fw-bold" value={itemParaEditar.unidad_envase} onChange={e => setItemParaEditar({...itemParaEditar, unidad_envase: e.target.value})} /></div>
             </div>
-
-            <div className="mb-4">
-              <label className="small fw-bold text-warning-emphasis">Cód Maestro Bálsamo (Equivalencia)</label>
-              <input type="text" className="form-control font-monospace text-uppercase border-warning fw-bold" value={itemParaEditar.codigo_aux} onChange={e => setItemParaEditar({...itemParaEditar, codigo_aux: e.target.value})} />
-            </div>
-
+            <div className="mb-4"><label className="small fw-bold text-warning-emphasis">Cód Maestro Bálsamo</label><input type="text" className="form-control font-monospace text-uppercase border-warning fw-bold" value={itemParaEditar.codigo_aux} onChange={e => setItemParaEditar({...itemParaEditar, codigo_aux: e.target.value})} /></div>
             <div className="d-flex gap-2">
               <button className="btn btn-light border fw-bold w-50" onClick={() => setItemParaEditar(null)}>Cancelar</button>
               <button className="btn btn-primary fw-bold w-50 shadow" onClick={guardarEdicionCompleta}>Guardar Cambios</button>
@@ -717,17 +659,14 @@ export default function GestionStock({ volverAlMenu }) {
         <div className="position-fixed top-0 start-0 w-100 h-100 bg-dark bg-opacity-75 d-flex justify-content-center align-items-center" style={{ zIndex: 2100 }}>
           <div className="card shadow-lg p-3 border-0" style={{ width: '350px', borderRadius: '12px' }}>
             <h6 className="fw-bold text-dark border-bottom pb-2">🧮 Calculadora de Descuentos</h6>
-            <p className="small text-muted mb-2">Ingresá los descuentos encadenados:</p>
             <div className="d-flex gap-2 mb-3">
-              <input type="number" className="form-control text-center fw-bold" placeholder="%" value={d1} onChange={e=>setD1(e.target.value)} />
-              <span className="mt-2">+</span>
-              <input type="number" className="form-control text-center fw-bold" placeholder="%" value={d2} onChange={e=>setD2(e.target.value)} />
-              <span className="mt-2">+</span>
+              <input type="number" className="form-control text-center fw-bold" placeholder="%" value={d1} onChange={e=>setD1(e.target.value)} /> <span className="mt-2">+</span>
+              <input type="number" className="form-control text-center fw-bold" placeholder="%" value={d2} onChange={e=>setD2(e.target.value)} /> <span className="mt-2">+</span>
               <input type="number" className="form-control text-center fw-bold" placeholder="%" value={d3} onChange={e=>setD3(e.target.value)} />
             </div>
             <div className="d-flex gap-2">
               <button className="btn btn-sm btn-light border w-50" onClick={() => setMostrarCascada(false)}>Volver</button>
-              <button className="btn btn-sm btn-primary fw-bold w-50" onClick={aplicarCascada}>Aplicar Real</button>
+              <button className="btn btn-sm btn-primary fw-bold w-50" onClick={aplicarCascada}>Aplicar</button>
             </div>
           </div>
         </div>
@@ -739,9 +678,7 @@ export default function GestionStock({ volverAlMenu }) {
           <div className="card shadow-lg p-0 border-0 d-flex flex-column" style={{ width: '600px', maxHeight: '85vh', borderRadius: '12px' }}>
             <div className="p-3 border-bottom text-white" style={{backgroundColor: '#6f42c1', borderTopLeftRadius:'12px', borderTopRightRadius:'12px'}}>
               <h5 className="fw-bold m-0">🏷️ Descuentos Fijos por Marca</h5>
-              <p className="small m-0 text-white-50">Edita el descuento o el nombre visual (Alias) para tu local.</p>
             </div>
-            
             <div className="p-3 bg-light border-bottom">
               <label className="small fw-bold text-secondary mb-1">Proveedor a configurar:</label>
               <select className="form-select fw-bold border-dark" value={provMarcasId} onChange={e => setProvMarcasId(e.target.value)}>
@@ -749,7 +686,6 @@ export default function GestionStock({ volverAlMenu }) {
                 {proveedores.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
               </select>
             </div>
-
             <div className="p-3 flex-grow-1 overflow-auto bg-white">
               {!provMarcasId ? (
                 <div className="text-center text-muted small py-4">Seleccioná un proveedor arriba.</div>
@@ -764,41 +700,32 @@ export default function GestionStock({ volverAlMenu }) {
                       </select>
                     </div>
                     <div>
-                      <label className="small text-muted fw-bold">Nombre Corto (Alias)</label>
-                      <input type="text" className="form-control text-uppercase font-monospace" placeholder="Ej: DOLZ" value={edicionMarcaAlias} onChange={e=>setEdicionMarcaAlias(e.target.value)} disabled={!marcaSeleccionadaEdicion} />
+                      <label className="small text-muted fw-bold">Nombre Corto</label>
+                      <input type="text" className="form-control text-uppercase font-monospace" value={edicionMarcaAlias} onChange={e=>setEdicionMarcaAlias(e.target.value)} disabled={!marcaSeleccionadaEdicion} />
                     </div>
                     <div>
                       <label className="small text-muted fw-bold">% Desc</label>
                       <input type="number" className="form-control text-center" style={{width:'80px'}} value={edicionMarcaDesc} onChange={e=>setEdicionMarcaDesc(e.target.value)} disabled={!marcaSeleccionadaEdicion} />
                     </div>
-                    <div>
-                      <button className="btn btn-dark fw-bold px-3" onClick={actualizarMarcaDict} disabled={!marcaSeleccionadaEdicion}>Aplicar</button>
-                    </div>
+                    <div><button className="btn btn-dark fw-bold px-3" onClick={actualizarMarcaDict} disabled={!marcaSeleccionadaEdicion}>Aplicar</button></div>
                   </div>
-                  
                   <ul className="list-group list-group-flush border rounded">
-                    {Object.keys(dictMarcas).length === 0 && <li className="list-group-item text-muted small text-center">No hay marcas registradas para este proveedor. Importá un Excel para que aparezcan solas.</li>}
                     {Object.entries(dictMarcas).map(([marcaOriginal, dataMarca]) => (
                       <li key={marcaOriginal} className="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
                         <div>
                           <strong className="font-monospace text-dark d-block">{dataMarca.alias || marcaOriginal}</strong>
                           {dataMarca.alias && dataMarca.alias !== marcaOriginal && <small className="text-muted" style={{fontSize:'10px'}}>Original: {marcaOriginal}</small>}
                         </div>
-                        <div>
-                          <span className="badge bg-success fs-6 me-3">{dataMarca.descuento || 0}% OFF</span>
-                        </div>
+                        <div><span className="badge bg-success fs-6 me-3">{dataMarca.descuento || 0}% OFF</span><button className="btn btn-sm btn-outline-danger py-0 px-2" onClick={() => eliminarMarcaDict(marcaOriginal)}>✖</button></div>
                       </li>
                     ))}
                   </ul>
                 </>
               )}
             </div>
-
             <div className="p-3 border-top bg-light d-flex justify-content-end gap-2" style={{borderBottomLeftRadius:'12px', borderBottomRightRadius:'12px'}}>
               <button className="btn btn-light border fw-bold w-50" onClick={() => setMostrarMarcas(false)}>Cerrar</button>
-              <button className="btn text-white fw-bold w-50 shadow-sm" style={{backgroundColor: '#6f42c1'}} onClick={guardarDictMarcas} disabled={!provMarcasId}>
-                💾 Guardar e Impactar DB
-              </button>
+              <button className="btn text-white fw-bold w-50 shadow-sm" style={{backgroundColor: '#6f42c1'}} onClick={guardarDictMarcas} disabled={!provMarcasId}>💾 Guardar e Impactar DB</button>
             </div>
           </div>
         </div>
@@ -808,48 +735,18 @@ export default function GestionStock({ volverAlMenu }) {
       {mostrarImportador && (
         <div className="position-fixed top-0 start-0 w-100 h-100 bg-dark bg-opacity-75 d-flex justify-content-center align-items-center" style={{ zIndex: 2000 }}>
           <div className="card shadow-lg p-0 border-0 border-top border-success border-5 d-flex flex-column" style={{ width: '95vw', height: '90vh', maxWidth: '1450px', borderRadius: '12px' }}>
-            
             <div className="p-3 border-bottom bg-light">
               <div className="d-flex justify-content-between align-items-center mb-3">
                 <h5 className="fw-bold text-dark m-0">📥 Importador (Actualiza Costos y Precios)</h5>
                 <button className="btn-close" onClick={() => { setMostrarImportador(false); setArchivoCsv(null); setPreviewFilas([]); setDatosCrudosExtraidos([]); }}></button>
               </div>
-
               <div className="row g-2 mb-2 p-2 border border-primary rounded bg-white shadow-sm">
-                <div className="col-3">
-                  <label className="small fw-bold text-secondary mb-1">1. Proveedor Origen</label>
-                  <select className="form-select form-select-sm fw-bold border-primary" value={provSeleccionadoCsv} onChange={e => setProvSeleccionadoCsv(e.target.value)}>
-                    <option value="">-- Seleccione proveedor --</option>
-                    {proveedores.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-                  </select>
-                </div>
-                
-                <div className="col-2">
-                  <label className="small fw-bold text-danger mb-1 d-flex justify-content-between">
-                    Desc. Gral. (%)
-                    <span className="text-primary text-decoration-underline" style={{cursor:'pointer'}} onClick={()=>setMostrarCascada(true)}>🧮 Cascada</span>
-                  </label>
-                  <input type="number" className="form-control form-control-sm fw-bold text-center text-danger" value={descuentoProvCsv} onChange={e => setDescuentoProvCsv(parseFloat(e.target.value)||0)} />
-                </div>
-
-                <div className="col-2 d-flex flex-column justify-content-end align-items-center pb-1">
-                  <div className="form-check form-switch">
-                    <input className="form-check-input border-dark" type="checkbox" id="ivaSwitch" checked={listaIncluyeIva} onChange={e => setListaIncluyeIva(e.target.checked)} />
-                    <label className="form-check-label small fw-bold text-dark" htmlFor="ivaSwitch">Lista trae IVA</label>
-                  </div>
-                </div>
-
-                <div className="col-2">
-                  <label className="small fw-bold text-success mb-1">Tu Ganancia (%)</label>
-                  <input type="number" className="form-control form-control-sm fw-bold text-center border-success text-success" value={margenPorDefectoCsv} onChange={e => setMargenPorDefectoCsv(parseFloat(e.target.value)||0)} />
-                </div>
-
-                <div className="col-3">
-                  <label className="small fw-bold text-secondary mb-1">Marca Fija Todo el Archivo</label>
-                  <input type="text" className="form-control form-control-sm text-uppercase" placeholder="Opcional..." value={marcaPorDefecto} onChange={e => setMarcaPorDefecto(e.target.value)} />
-                </div>
+                <div className="col-3"><label className="small fw-bold text-secondary mb-1">1. Proveedor Origen</label><select className="form-select form-select-sm fw-bold border-primary" value={provSeleccionadoCsv} onChange={e => setProvSeleccionadoCsv(e.target.value)}><option value="">-- Seleccione proveedor --</option>{proveedores.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select></div>
+                <div className="col-2"><label className="small fw-bold text-danger mb-1 d-flex justify-content-between">Desc. Gral. (%)<span className="text-primary text-decoration-underline" style={{cursor:'pointer'}} onClick={()=>setMostrarCascada(true)}>🧮 Cascada</span></label><input type="number" className="form-control form-control-sm fw-bold text-center text-danger" value={descuentoProvCsv} onChange={e => setDescuentoProvCsv(parseFloat(e.target.value)||0)} /></div>
+                <div className="col-2 d-flex flex-column justify-content-end align-items-center pb-1"><div className="form-check form-switch"><input className="form-check-input border-dark" type="checkbox" id="ivaSwitch" checked={listaIncluyeIva} onChange={e => setListaIncluyeIva(e.target.checked)} /><label className="form-check-label small fw-bold text-dark" htmlFor="ivaSwitch">Lista trae IVA</label></div></div>
+                <div className="col-2"><label className="small fw-bold text-success mb-1">Tu Ganancia (%)</label><input type="number" className="form-control form-control-sm fw-bold text-center border-success text-success" value={margenPorDefectoCsv} onChange={e => setMargenPorDefectoCsv(parseFloat(e.target.value)||0)} /></div>
+                <div className="col-3"><label className="small fw-bold text-secondary mb-1">Marca Fija Todo el Archivo</label><input type="text" className="form-control form-control-sm text-uppercase" placeholder="Opcional..." value={marcaPorDefecto} onChange={e => setMarcaPorDefecto(e.target.value)} /></div>
               </div>
-
               <div className="row g-2 align-items-center">
                 <div className="col-3">
                   <label className="small fw-bold text-secondary mb-1">Formato Archivo TXT</label>
@@ -872,13 +769,19 @@ export default function GestionStock({ volverAlMenu }) {
                 </div>
                 <div className="col-4">
                   <label className="small fw-bold text-secondary mb-1">2. Subir Archivo (.csv, .txt, .xlsx)</label>
-                  <input type="file" className="form-control form-control-sm" accept=".csv, .txt, .dbf, .xls, .xlsx" disabled={!provSeleccionadoCsv} onChange={(e) => { setArchivoCsv(e.target.files[0]); }} />
+                  <input type="file" className="form-control form-control-sm" accept=".csv, .txt, .dbf, .xls, .xlsx" disabled={!provSeleccionadoCsv} onChange={(e) => procesarArchivo(e.target.files[0], separadorManual)} />
                 </div>
               </div>
             </div>
 
-            <div className="p-3 flex-grow-1 overflow-auto bg-white">
-              {previewFilas.length > 0 ? (
+            <div className="p-3 flex-grow-1 overflow-auto bg-white position-relative">
+              {leyendoArchivo ? (
+                <div className="position-absolute top-0 start-0 w-100 h-100 d-flex flex-column align-items-center justify-content-center bg-white" style={{zIndex: 10}}>
+                  <div className="spinner-border text-success mb-3" style={{width: '3rem', height: '3rem'}} role="status"></div>
+                  <h5 className="fw-bold text-dark">Destripando archivo... aguardá unos segundos</h5>
+                  <span className="text-muted small">Los Excel pesados congelan la pantalla un ratito. Es normal.</span>
+                </div>
+              ) : previewFilas.length > 0 ? (
                 <>
                   <div className="d-flex justify-content-between align-items-center mb-2">
                     <div className="d-flex gap-3 align-items-center">
@@ -940,10 +843,9 @@ export default function GestionStock({ volverAlMenu }) {
                 </div>
               )}
             </div>
-
             <div className="p-3 border-top bg-light d-flex justify-content-end gap-2">
-              <button className="btn btn-outline-secondary fw-bold px-4" onClick={() => { setMostrarImportador(false); setArchivoCsv(null); setPreviewFilas([]); setDatosCrudosExtraidos([]); }} disabled={procesandoCsv}>Cancelar</button>
-              <button className="btn btn-success fw-bold px-5 shadow" onClick={ejecutarBarridoMasivo} disabled={procesandoCsv || previewFilas.length === 0}>
+              <button className="btn btn-outline-secondary fw-bold px-4" onClick={() => { setMostrarImportador(false); setArchivoCsv(null); setPreviewFilas([]); setDatosCrudosExtraidos([]); }} disabled={procesandoCsv || leyendoArchivo}>Cancelar</button>
+              <button className="btn btn-success fw-bold px-5 shadow" onClick={ejecutarBarridoMasivo} disabled={procesandoCsv || previewFilas.length === 0 || leyendoArchivo}>
                 {procesandoCsv ? 'Procesando archivo masivo...' : '💾 Guardar y Procesar BD'}
               </button>
             </div>
@@ -952,4 +854,4 @@ export default function GestionStock({ volverAlMenu }) {
       )}
     </div>
   );
-}
+} 
