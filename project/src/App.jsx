@@ -10,9 +10,9 @@ import Contabilidad from './components/Contabilidad';
 import Pedidos from './components/Pedidos';
 import Mostrador from './components/mostrador/Mostrador';
 import Deposito from './components/Deposito';
-import CuentasCorrientes from './components/CuentasCorrientes';
 import HistorialComprobantes from './components/HistorialComprobantes';
 import MenuDashboard from './components/MenuDashboard';
+import Clientes from './components/Clientes';
 
 function App() {
   const [session, setSession] = useState(null);
@@ -161,7 +161,7 @@ function App() {
 
       {vista === 'configuracion' && <Configuracion volverAlMenu={() => setVista('dashboard')} />}
       {vista === 'deposito' && <Deposito volverAlMenu={() => setVista('dashboard')} />}
-      {vista === 'clientes' && <CuentasCorrientes volverAlMenu={() => setVista('dashboard')} />}
+      {vista === 'clientes' && <Clientes volverAlMenu={() => setVista('dashboard')} />}
       {vista === 'pedidos' && <Pedidos volverAlMenu={() => setVista('dashboard')} />}
       {vista === 'contabilidad' && <Contabilidad volverAlMenu={() => setVista('dashboard')} />} 
       {vista === 'stock' && <GestionStock volverAlMenu={() => setVista('dashboard')} />}

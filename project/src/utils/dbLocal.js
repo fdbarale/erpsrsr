@@ -57,8 +57,15 @@ export const syncCatalogo = async (forzar = false) => {
 export const precargarCatalogoEnRAM = async () => {
   if (cacheCatalogoRAM) return;
   const db = await initDB();
-  const crudos = await db.getAll(STORE_NAME);
+  let crudos = await db.getAll(STORE_NAME);
   
+  // AUTO-SYNC: Si estás en una PC nueva y la base local está vacía, baja de la nube automáticamente
+  if (crudos.length === 0) {
+    console.log("Base local vacía en esta PC. Sincronizando desde Supabase...");
+    await syncCatalogo();
+    crudos = await db.getAll(STORE_NAME);
+  }
+
   cacheCatalogoRAM = crudos.map(item => ({
     ...item,
     _busquedaFull: `${item.cod || ''} ${item.desc || ''} ${item.marca || ''} ${item.codigo_aux || ''} ${item.distribuidor || ''} ${item.nro_original || ''}`.toLowerCase(),
@@ -71,13 +78,19 @@ export const precargarCatalogoEnRAM = async () => {
 export const buscarArticulosLocal = async (texto, modoFiltro, filtroDistriExtra = '') => {
   if (!cacheCatalogoRAM) await precargarCatalogoEnRAM();
   
-  let stringBusqueda = texto.toLowerCase().trim();
-  
-  // Si no tipeó nada pero tampoco eligió distribuidora, no mostramos nada
-  if (!stringBusqueda && !filtroDistriExtra) return [];
-
+  let stringBusqueda = (texto || '').toLowerCase().trim();
   let busquedaLibre = false;
-  let comodinDistri = filtroDistriExtra.toLowerCase();
+  let comodinDistri = (filtroDistriExtra || '').toLowerCase();
+
+  // Si no tipeó nada ni eligió filtro, devolvemos 100 por defecto para que la pantalla no esté vacía
+  if (!stringBusqueda && !comodinDistri) {
+    const defaultFiltrados = cacheCatalogoRAM.filter(item => {
+      const esDeEstanteria = item.en_estanteria === true || item.en_estanteria === 'true'; 
+      if (modoFiltro === 'LOCAL' && !esDeEstanteria) return false;
+      return true;
+    });
+    return defaultFiltrados.slice(0, 100); 
+  }
 
   if (stringBusqueda.startsWith('*')) {
     busquedaLibre = true;
@@ -140,7 +153,7 @@ export const buscarArticulosLocal = async (texto, modoFiltro, filtroDistriExtra 
     return cumpleCondicion;
   });
 
-  return filtrados.slice(0, 50); 
+  return filtrados.slice(0, 100); // Subí el límite a 100 para que se vea más relleno
 };
 
 export const obtenerDistribuidoresLocal = async () => {

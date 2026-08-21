@@ -13,14 +13,14 @@ export default function CatalogoProveedor() {
 
   const formatoMoneda = (valor) => "$ " + Number(valor || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 });
 
+  // Dispara la carga de los primeros 100 artículos apenas entrás a la pestaña
   useEffect(() => {
     obtenerDistribuidoresLocal().then(setListaDistribuidores);
+    buscarArticulosLocal('', 'TODOS', '').then(setResultados);
   }, []);
 
   const ejecutarBusqueda = async (e) => {
     e.preventDefault();
-    if (!textoBusqueda.trim() && !distriSeleccionada) return;
-    
     setBuscando(true);
     const res = await buscarArticulosLocal(textoBusqueda, 'TODOS', distriSeleccionada);
     setResultados(res);

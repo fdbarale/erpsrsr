@@ -9,11 +9,7 @@ export default function EstanteriaLocal() {
 
   useEffect(() => {
     const timer = setTimeout(async () => {
-      if (!textoBusqueda.trim()) {
-        setMisArticulos([]);
-        return;
-      }
-      // Pasa 'LOCAL' para que la búsqueda incremental solo agarre tu estantería
+      // Ya no vacía el array si no hay texto, delega en la función que trae los 100 por defecto
       const res = await buscarArticulosLocal(textoBusqueda, 'LOCAL');
       setMisArticulos(res);
     }, 250);
