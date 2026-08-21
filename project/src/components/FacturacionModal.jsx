@@ -106,26 +106,43 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
 
   const limpiarYCerrar = () => { if (typeof vaciarYConfirmar === 'function') vaciarYConfirmar(); if (typeof cerrar === 'function') cerrar(); };
 
-  const mandarAImprimirIframe = (html) => {
+  const mandarAImprimirIframe = (htmlContenido) => {
     const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed'; iframe.style.right = '-2000px'; iframe.style.bottom = '-2000px'; iframe.style.width = '0'; iframe.style.height = '0'; iframe.style.border = '0';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '-2000px';
+    iframe.style.bottom = '-2000px';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
     document.body.appendChild(iframe);
+
     const doc = iframe.contentWindow.document;
-    doc.open(); doc.write('<html><head><title>Impresión Comprobante</title>');
-    document.querySelectorAll('link[rel="stylesheet"], style').forEach(nodo => doc.write(nodo.outerHTML));
-    doc.write('</head><body style="background:white; margin:0; padding:10px;">'); doc.write(html); doc.write('</body></html>'); doc.close();
+    doc.open();
+    doc.write('<html><head><title>Impresión Comprobante</title>');
+    doc.write('<style>body { margin: 0; padding: 0; font-family: monospace; }</style>');
+    doc.write('</head><body>');
+    doc.write(htmlContenido);
+    doc.write('</body></html>');
+    doc.close();
+
     iframe.contentWindow.focus();
-    setTimeout(() => { iframe.contentWindow.print(); setTimeout(() => { if (document.body.contains(iframe)) document.body.removeChild(iframe); }, 500); }, 500);
+    setTimeout(() => { 
+      iframe.contentWindow.print(); 
+      setTimeout(() => { 
+        if (document.body.contains(iframe)) document.body.removeChild(iframe); 
+      }, 1000); 
+    }, 250);
   };
 
   const ejecutarImpresionYSalir = () => {
     const htmlTicket = opcionesImpresion.ticket ? document.getElementById('render-oculto-ticket')?.innerHTML : null;
     const htmlA4 = opcionesImpresion.a4 ? document.getElementById('render-oculto-a4')?.innerHTML : null;
     limpiarYCerrar();
+    
     setTimeout(() => {
       if (htmlTicket) mandarAImprimirIframe(htmlTicket);
-      if (htmlA4) setTimeout(() => mandarAImprimirIframe(htmlA4), htmlTicket ? 1500 : 0);
-    }, 500);
+      if (htmlA4) setTimeout(() => mandarAImprimirIframe(htmlA4), htmlTicket ? 1000 : 0);
+    }, 200);
   };
 
   useEffect(() => {
@@ -214,7 +231,6 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
         tipoComprobante = 'FISCAL';
         infoCae = { cae: dataAfip.cae, vtoCae: dataAfip.vtoCae };
 
-        // Inserción directa en Oficial
         const { data: ventaOficial, error: errorDb } = await dbOficial
           .from('ventas')
           .insert([{
@@ -246,7 +262,6 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
         const { error: errorItemsOficial } = await dbOficial.from('ventas_items').insert(itemsOficial);
         if (errorItemsOficial) throw new Error("Error en BD Oficial (Items): " + errorItemsOficial.message);
 
-        // Descuento de stock en Oficial
         for (const it of carrito) {
           if (it.esManual || it.cod === 'MANUAL') continue;
           const { data: art } = await dbOficial.from('articulos').select('stock').eq('cod', it.cod).single();
@@ -270,7 +285,6 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
         tipoComprobante = 'PRESUPUESTO';
         letraComprobante = 'X';
 
-        // Inserción directa en Parda
         const { data: ventaParda, error: errorVenta } = await dbParda
           .from('ventas')
           .insert([{
@@ -294,7 +308,6 @@ export default function FacturacionModal({ carrito, totalCarrito, cerrar, vaciar
         const { error: errorItemsParda } = await dbParda.from('ventas_items').insert(itemsParda);
         if (errorItemsParda) throw new Error("Error en BD Parda (Items): " + errorItemsParda.message);
 
-        // Descuento silencioso del stock físico en la Oficial
         for (const it of carrito) {
           if (it.esManual || it.cod === 'MANUAL') continue;
           const { data: art } = await dbOficial.from('articulos').select('stock').eq('cod', it.cod).single();

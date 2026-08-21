@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { buscarArticulosLocal, obtenerDistribuidoresLocal, buscarEquivalenciasLocal, obtenerArticuloLocal, actualizarArticuloLocal } from '../../utils/dbLocal';
+import { buscarArticulosLocal, buscarEquivalenciasLocal, obtenerArticuloLocal, actualizarArticuloLocal, precargarCatalogoEnRAM } from '../../utils/dbLocal';
 import { useMostradorStore } from '../../stores/useMostradorStore';
 import { dbOficial } from '../../supabaseClient';
 
@@ -10,7 +10,6 @@ export default function BuscadorArticulos({ setModalPedido }) {
   
   const [textoBusqueda, setTextoBusqueda] = useState('');
   const [modoFiltro, setModoFiltro] = useState('LOCAL');
-  const [listaFiltros, setListaFiltros] = useState(['LOCAL', 'TODOS']);
   const [faseBusqueda, setFaseBusqueda] = useState('BUSQUEDA');
   
   const [resultados, setResultados] = useState([]);
@@ -24,32 +23,27 @@ export default function BuscadorArticulos({ setModalPedido }) {
 
   const listaResultadosRef = useRef(null);
   const colorBordo = '#6B1116';
-  const colorFiltro = modoFiltro === 'LOCAL' ? 'bg-success' : modoFiltro === 'TODOS' ? 'bg-dark' : 'bg-secondary';
+  const colorFiltro = modoFiltro === 'LOCAL' ? 'bg-success' : 'bg-dark';
   const formatoMoneda = (valor) => "$ " + Math.round(parseFloat(valor) || 0).toLocaleString('es-AR');
 
   useEffect(() => {
-    obtenerDistribuidoresLocal().then(distris => {
-      if (distris && distris.length > 0) setListaFiltros(['LOCAL', 'TODOS', ...distris]);
-    });
+    precargarCatalogoEnRAM().catch(console.error);
   }, []);
 
+  // BÚSQUEDA HÍBRIDA: Automática para LOCAL, Manual para TODOS
   useEffect(() => {
+    if (modoFiltro === 'TODOS') return; // Si es TODOS, no hace nada automático, espera al Enter
+
     if (!textoBusqueda.trim()) {
       setResultados([]);
       return;
     }
-    const timer = setTimeout(async () => {
-      const filtrados = await buscarArticulosLocal(textoBusqueda, modoFiltro);
-      
-      // Verificación real de hermanos/primos en IndexedDB para no mostrar chapitas falsas
-      const conEquivalenciasReales = await Promise.all(filtrados.map(async (item) => {
-        if (!item.codigo_aux) return { ...item, tienePrimosReales: false };
-        const eq = await buscarEquivalenciasLocal(item.codigo_aux);
-        return { ...item, tienePrimosReales: eq.length > 1 };
-      }));
-
-      setResultados(conEquivalenciasReales);
+    
+    // Si es LOCAL, hace búsqueda incremental con un delay de 250ms
+    const timer = setTimeout(() => {
+      ejecutarBusquedaManual();
     }, 250);
+    
     return () => clearTimeout(timer);
   }, [textoBusqueda, modoFiltro]);
 
@@ -65,8 +59,27 @@ export default function BuscadorArticulos({ setModalPedido }) {
     }
   }, [indiceFoco, indiceSubFoco, indicePrecioFoco, faseBusqueda]);
 
+  const ejecutarBusquedaManual = async () => {
+    if (!textoBusqueda.trim()) {
+      setResultados([]);
+      return;
+    }
+    const filtrados = await buscarArticulosLocal(textoBusqueda, modoFiltro);
+    
+    const conEquivalenciasReales = await Promise.all(filtrados.map(async (item) => {
+      if (!item.codigo_aux) return { ...item, tienePrimosReales: false };
+      const eq = await buscarEquivalenciasLocal(item.codigo_aux);
+      return { ...item, tienePrimosReales: eq.length > 1 };
+    }));
+
+    setResultados(conEquivalenciasReales);
+    setFaseBusqueda('BUSQUEDA');
+    setIndiceFoco(conEquivalenciasReales.length > 0 ? 0 : -1); 
+  };
+
   const limpiarBuscador = () => {
     setTextoBusqueda('');
+    setResultados([]);
     setIndiceFoco(-1);
     setFaseBusqueda('BUSQUEDA');
     setListaEquivalencias([]);
@@ -114,10 +127,8 @@ export default function BuscadorArticulos({ setModalPedido }) {
   const manejarTecladoBuscador = async (e) => {
     if (e.key === 'F3') {
       e.preventDefault();
-      setModoFiltro(prev => {
-        const nextIndex = (listaFiltros.indexOf(prev) + 1) % listaFiltros.length;
-        return listaFiltros[nextIndex];
-      });
+      setModoFiltro(prev => prev === 'LOCAL' ? 'TODOS' : 'LOCAL');
+      document.getElementById('input-buscador-mostrador')?.focus();
       return;
     }
     
@@ -135,7 +146,7 @@ export default function BuscadorArticulos({ setModalPedido }) {
       return;
     } else if (e.key === 'Escape' && textoBusqueda) {
       e.preventDefault();
-      setTextoBusqueda('');
+      limpiarBuscador();
       return;
     }
 
@@ -150,10 +161,21 @@ export default function BuscadorArticulos({ setModalPedido }) {
     }
 
     if (faseBusqueda === 'BUSQUEDA') {
-      if (resultados.length === 0) return;
-      if (e.key === 'ArrowDown') { e.preventDefault(); setIndiceFoco(p => p < resultados.length - 1 ? p + 1 : p); } 
-      else if (e.key === 'ArrowUp') { e.preventDefault(); setIndiceFoco(p => p > 0 ? p - 1 : -1); } 
-      else if (e.key === 'ArrowRight') {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        // En TODOS, si no hay resultados obliga a disparar la búsqueda.
+        if (resultados.length === 0 || indiceFoco === -1) {
+          ejecutarBusquedaManual();
+        } else {
+          procesarSeleccionArticulo(resultados[indiceFoco]);
+        }
+      } else if (e.key === 'ArrowDown') { 
+        e.preventDefault(); 
+        if (resultados.length > 0) setIndiceFoco(p => p < resultados.length - 1 ? p + 1 : p); 
+      } else if (e.key === 'ArrowUp') { 
+        e.preventDefault(); 
+        if (resultados.length > 0) setIndiceFoco(p => p > 0 ? p - 1 : -1); 
+      } else if (e.key === 'ArrowRight') {
         e.preventDefault();
         if (indiceFoco >= 0 && resultados[indiceFoco]?.tienePrimosReales) {
           const eq = await buscarEquivalenciasLocal(resultados[indiceFoco].codigo_aux);
@@ -163,9 +185,6 @@ export default function BuscadorArticulos({ setModalPedido }) {
             setIndiceSubFoco(0); 
           }
         }
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        procesarSeleccionArticulo(indiceFoco >= 0 ? resultados[indiceFoco] : resultados[0]);
       }
     } 
     else if (faseBusqueda === 'EQUIVALENCIAS') {
@@ -196,16 +215,22 @@ export default function BuscadorArticulos({ setModalPedido }) {
   return (
     <div className="d-flex mb-3 position-relative">
       <div className="w-100 position-relative d-flex align-items-center bg-white border shadow-sm rounded-pill px-2" style={{ borderColor: '#ced4da', zIndex: 1060 }}>
-        <span className={`badge ${colorFiltro} ms-2 rounded-pill`} style={{ cursor: 'pointer', padding: '0.4em 0.8em' }} onClick={() => setModoFiltro('LOCAL')}>
+        <span className={`badge ${colorFiltro} ms-2 rounded-pill`} style={{ cursor: 'pointer', padding: '0.4em 0.8em' }} onClick={() => { setModoFiltro(prev => prev === 'LOCAL' ? 'TODOS' : 'LOCAL'); document.getElementById('input-buscador-mostrador')?.focus(); }}>
           [F3] {modoFiltro}
         </span>
         <input 
           id="input-buscador-mostrador"
           type="text" 
           className="form-control border-0 shadow-none bg-transparent" 
-          placeholder="🔎 Buscar artículo u original... (Enter: Cargar | F3: Filtro | F5: Manual | Ins/Supr: Pedidos)" 
+          placeholder="🔎 Buscar artículo u original... (Enter: Buscar/Cargar | F3: Filtro | F5: Manual)" 
           value={textoBusqueda}
-          onChange={(e) => { setTextoBusqueda(e.target.value); setFaseBusqueda('BUSQUEDA'); setIndiceFoco(-1); }}
+          onChange={(e) => { 
+            setTextoBusqueda(e.target.value); 
+            // Si está en TODOS, borramos resultados para forzar el Enter. Si es LOCAL, el useEffect de arriba se encarga.
+            if (modoFiltro === 'TODOS') setResultados([]); 
+            setFaseBusqueda('BUSQUEDA'); 
+            setIndiceFoco(-1); 
+          }}
           onKeyDown={manejarTecladoBuscador}
           autoComplete="off"
         />
@@ -223,8 +248,8 @@ export default function BuscadorArticulos({ setModalPedido }) {
                         <strong className={`font-monospace ${esActivo ? 'text-dark' : 'text-primary'}`}>{item.cod}</strong>
                         <span className={`ms-2 text-truncate ${esActivo ? 'fw-bold text-dark' : 'fw-semibold text-secondary'}`}>{item.desc}</span>
                         <div className="ms-auto d-flex align-items-center flex-nowrap">
-                          {item.codigo_aux ? renderInsigniaStock(item.stock) : <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary mx-2" style={{fontSize:'0.75rem'}}>Sin internalizar</span>}
-                          <span className="badge bg-light text-dark border">{item.distribuidor}</span>
+                          {item.en_estanteria ? renderInsigniaStock(item.stock) : <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary mx-2" style={{fontSize:'0.75rem'}}>Sin internalizar</span>}
+                          <span className="badge bg-light text-dark border">{item.marca || item.distribuidor}</span>
                           {item.tienePrimosReales && <span className="badge bg-info bg-opacity-10 text-info border border-info ms-2" style={{fontSize:'0.75rem'}}>🔗 (➔)</span>}
                           {renderIconoPedido(item)}
                         </div>

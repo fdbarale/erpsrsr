@@ -1,21 +1,17 @@
 import React, { useState, useEffect } from 'react';
-
-// Subimos DOS niveles (../../) para llegar a stores, utils y supabaseClient
 import { useMostradorStore } from '../../stores/useMostradorStore';
 import { obtenerArticuloLocal } from '../../utils/dbLocal';
 import { dbOficial } from '../../supabaseClient';
 
-// Estos están en la misma carpeta (./)
 import BuscadorArticulos from './BuscadorArticulos';
 import TablaCarrito from './TablaCarrito';
 import PanelTotales from './PanelTotales';
 
-// Los modales quedaron UN nivel arriba (../) en la carpeta components
 import FacturacionModal from '../FacturacionModal';
 import PresupuestoModal from '../PresupuestoModal';
 import ModalRecuperarPresupuesto from '../ModalRecuperarPresupuesto';
 
-export default function Mostrador({ abrirFacturacionInicial, desactivarFacturacionInicial, volverAlMenu, procesarVenta, usuarioOperador }) {
+export default function Mostrador({ abrirFacturacionInicial, desactivarFacturacionInicial, volverAlMenu, usuarioOperador }) {
   const { carrito, vaciarCarrito, setCarritoCompleto } = useMostradorStore();
   
   const [mostrarFacturacion, setMostrarFacturacion] = useState(false);
@@ -29,11 +25,10 @@ export default function Mostrador({ abrirFacturacionInicial, desactivarFacturaci
   useEffect(() => {
     if (abrirFacturacionInicial) {
       setMostrarFacturacion(true);
-      desactivarFacturacionInicial();
+      if (typeof desactivarFacturacionInicial === 'function') desactivarFacturacionInicial();
     }
   }, [abrirFacturacionInicial, desactivarFacturacionInicial]);
 
-  // Atajos globales (Fuera del buscador)
   useEffect(() => {
     const atajosGlobales = (e) => {
       if (mostrarFacturacion || mostrarPresupuesto || mostrarRecuperar || modalPedido) return; 
@@ -54,7 +49,6 @@ export default function Mostrador({ abrirFacturacionInicial, desactivarFacturaci
         e.preventDefault();
         setMostrarRecuperar(true);
       } else if (e.key === 'Escape') {
-        // Solo vuelve al menú si el input está vacío y el carrito también
         const inputBuscador = document.getElementById('input-buscador-mostrador');
         if (carrito.length === 0 && inputBuscador && !inputBuscador.value) {
           volverAlMenu();
@@ -63,7 +57,7 @@ export default function Mostrador({ abrirFacturacionInicial, desactivarFacturaci
     };
     window.addEventListener('keydown', atajosGlobales);
     return () => window.removeEventListener('keydown', atajosGlobales);
-  }, [carrito, mostrarFacturacion, mostrarPresupuesto, mostrarRecuperar, modalPedido]);
+  }, [carrito, mostrarFacturacion, mostrarPresupuesto, mostrarRecuperar, modalPedido, volverAlMenu, vaciarCarrito]);
 
   const recibirPresupuesto = (itemsRecuperados) => {
     setCarritoCompleto([...carrito, ...itemsRecuperados]);
@@ -78,8 +72,6 @@ export default function Mostrador({ abrirFacturacionInicial, desactivarFacturaci
   };
 
   const actualizarCantidadPedido = async (cod, incremento) => {
-    // Lógica para actualizar el modal del pedido directamente. 
-    // La actualización de dbLocal se hace en el buscador.
     const itemBd = await obtenerArticuloLocal(cod);
     if (!itemBd) return;
     const nuevaCant = Math.max(0, (itemBd.cant_pendiente || 0) + incremento);
@@ -90,7 +82,6 @@ export default function Mostrador({ abrirFacturacionInicial, desactivarFacturaci
   return (
     <div className="bg-light min-vh-100 d-flex flex-column" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
       
-      {/* Modales */}
       {modalPedido && (
         <div className="position-fixed top-0 start-0 w-100 h-100 bg-dark bg-opacity-75 d-flex justify-content-center align-items-center" style={{ zIndex: 3000 }}>
           <div className="card shadow-lg border-0" style={{ width: '400px', borderRadius: '12px' }}>
@@ -136,7 +127,6 @@ export default function Mostrador({ abrirFacturacionInicial, desactivarFacturaci
           totalCarrito={carrito.reduce((acum, item) => acum + ((Number(item.precio) || 0) * (Number(item.cantidad) || 0)), 0)} 
           cerrar={() => setMostrarFacturacion(false)} 
           vaciarYConfirmar={() => {
-            procesarVenta(carrito);
             vaciarCarrito();
             setMostrarFacturacion(false);
             document.getElementById('input-buscador-mostrador')?.focus();
@@ -158,7 +148,6 @@ export default function Mostrador({ abrirFacturacionInicial, desactivarFacturaci
         />
       )}
 
-      {/* Navbar Superior */}
       <nav className="navbar navbar-dark shadow-sm px-3" style={{ backgroundColor: colorBordo, borderBottom: `4px solid ${colorGris}` }}>
         <div className="container-fluid p-0">
           <div className="d-flex align-items-center">
@@ -171,7 +160,6 @@ export default function Mostrador({ abrirFacturacionInicial, desactivarFacturaci
         </div>
       </nav>
 
-      {/* Layout Grilla Principal */}
       <div className="container-fluid px-3 mt-3 flex-grow-1">
         <div className="row h-100">
           <div className="col-lg-9 col-xl-10">
@@ -189,4 +177,4 @@ export default function Mostrador({ abrirFacturacionInicial, desactivarFacturaci
       </div>
     </div>
   );
-}
+} 
