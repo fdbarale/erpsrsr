@@ -24,7 +24,7 @@ export default function BuscadorArticulos({ setModalPedido }) {
   const listaResultadosRef = useRef(null);
   const colorBordo = '#6B1116';
   const colorFiltro = modoFiltro === 'LOCAL' ? 'bg-success' : 'bg-dark';
-  const formatoMoneda = (valor) => "$ " + Math.round(parseFloat(valor) || 0).toLocaleString('es-AR');
+  const formatoMoneda = (valor) => "$ " + Number(valor || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 });
 
   useEffect(() => {
     precargarCatalogoEnRAM().catch(console.error);
@@ -32,14 +32,13 @@ export default function BuscadorArticulos({ setModalPedido }) {
 
   // BÚSQUEDA HÍBRIDA: Automática para LOCAL, Manual para TODOS
   useEffect(() => {
-    if (modoFiltro === 'TODOS') return; // Si es TODOS, no hace nada automático, espera al Enter
+    if (modoFiltro === 'TODOS') return; 
 
     if (!textoBusqueda.trim()) {
       setResultados([]);
       return;
     }
     
-    // Si es LOCAL, hace búsqueda incremental con un delay de 250ms
     const timer = setTimeout(() => {
       ejecutarBusquedaManual();
     }, 250);
@@ -163,7 +162,6 @@ export default function BuscadorArticulos({ setModalPedido }) {
     if (faseBusqueda === 'BUSQUEDA') {
       if (e.key === 'Enter') {
         e.preventDefault();
-        // En TODOS, si no hay resultados obliga a disparar la búsqueda.
         if (resultados.length === 0 || indiceFoco === -1) {
           ejecutarBusquedaManual();
         } else {
@@ -222,11 +220,10 @@ export default function BuscadorArticulos({ setModalPedido }) {
           id="input-buscador-mostrador"
           type="text" 
           className="form-control border-0 shadow-none bg-transparent" 
-          placeholder="🔎 Buscar artículo u original... (Enter: Buscar/Cargar | F3: Filtro | F5: Manual)" 
+          placeholder="🔎 Ej: amort 12 (Ancla) | *amort 12 (Libre) | *arc (Distri) | Enter: Cargar | F5: Manual" 
           value={textoBusqueda}
           onChange={(e) => { 
             setTextoBusqueda(e.target.value); 
-            // Si está en TODOS, borramos resultados para forzar el Enter. Si es LOCAL, el useEffect de arriba se encarga.
             if (modoFiltro === 'TODOS') setResultados([]); 
             setFaseBusqueda('BUSQUEDA'); 
             setIndiceFoco(-1); 
@@ -248,7 +245,7 @@ export default function BuscadorArticulos({ setModalPedido }) {
                         <strong className={`font-monospace ${esActivo ? 'text-dark' : 'text-primary'}`}>{item.cod}</strong>
                         <span className={`ms-2 text-truncate ${esActivo ? 'fw-bold text-dark' : 'fw-semibold text-secondary'}`}>{item.desc}</span>
                         <div className="ms-auto d-flex align-items-center flex-nowrap">
-                          {item.en_estanteria ? renderInsigniaStock(item.stock) : <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary mx-2" style={{fontSize:'0.75rem'}}>Sin internalizar</span>}
+                          {item.en_estanteria === true || item.en_estanteria === 'true' ? renderInsigniaStock(item.stock) : <span className="badge bg-secondary bg-opacity-10 text-secondary border border-secondary mx-2" style={{fontSize:'0.75rem'}}>No internalizado</span>}
                           <span className="badge bg-light text-dark border">{item.marca || item.distribuidor}</span>
                           {item.tienePrimosReales && <span className="badge bg-info bg-opacity-10 text-info border border-info ms-2" style={{fontSize:'0.75rem'}}>🔗 (➔)</span>}
                           {renderIconoPedido(item)}

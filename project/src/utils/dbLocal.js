@@ -4,7 +4,6 @@ import { dbOficial } from '../supabaseClient';
 const DB_NAME = 'RSR_ERP_DB';
 const STORE_NAME = 'articulos';
 
-// Variable global para cachear los repuestos en memoria y evitar colapsar el disco
 let cacheCatalogoRAM = null;
 
 export const initDB = async () => {
@@ -29,23 +28,14 @@ export const syncCatalogo = async (forzar = false) => {
   }
 
   console.log("Iniciando descarga completa de todas las distribuidoras...");
-  
   let todosLosArticulos = [];
   let desde = 0;
   const paso = 1000;
   let hayMas = true;
 
   while (hayMas) {
-    const { data, error } = await dbOficial
-      .from('articulos')
-      .select('*')
-      .range(desde, desde + paso - 1);
-
-    if (error) {
-      console.error("Fallo al bajar lote de catálogo:", error);
-      break;
-    }
-
+    const { data, error } = await dbOficial.from('articulos').select('*').range(desde, desde + paso - 1);
+    if (error) break;
     if (data && data.length > 0) {
       todosLosArticulos = todosLosArticulos.concat(data);
       desde += paso;
@@ -60,10 +50,7 @@ export const syncCatalogo = async (forzar = false) => {
     await tx.store.clear();
     await Promise.all(todosLosArticulos.map(item => tx.store.put(item)));
     await tx.done;
-    
-    // Invalidamos la RAM vieja para obligarlo a recargar
     cacheCatalogoRAM = null; 
-    console.log("Catálogo COMPLETO sincronizado localmente. Total repuestos:", todosLosArticulos.length);
   }
 };
 
@@ -72,7 +59,6 @@ export const precargarCatalogoEnRAM = async () => {
   const db = await initDB();
   const crudos = await db.getAll(STORE_NAME);
   
-  // PRE-CÁLCULO: Masticamos los strings 1 sola vez en la vida
   cacheCatalogoRAM = crudos.map(item => ({
     ...item,
     _busquedaFull: `${item.cod || ''} ${item.desc || ''} ${item.marca || ''} ${item.codigo_aux || ''} ${item.distribuidor || ''} ${item.nro_original || ''}`.toLowerCase(),
@@ -80,30 +66,35 @@ export const precargarCatalogoEnRAM = async () => {
     _originalSanitizado: (item.nro_original || '').toLowerCase().replace(/[^a-z0-9]/g, ''),
     _auxSanitizado: (item.codigo_aux || '').toLowerCase().replace(/[^a-z0-9]/g, '')
   }));
-  
-  console.log(`Catálogo optimizado en RAM: ${cacheCatalogoRAM.length} artículos listos para búsqueda instantánea.`);
 };
 
-export const buscarArticulosLocal = async (texto, modoFiltro) => {
-  if (!texto.trim()) return [];
+export const buscarArticulosLocal = async (texto, modoFiltro, filtroDistriExtra = '') => {
   if (!cacheCatalogoRAM) await precargarCatalogoEnRAM();
   
-  let stringBusqueda = texto.toLowerCase();
-  let comodinDistri = '';
+  let stringBusqueda = texto.toLowerCase().trim();
+  
+  // Si no tipeó nada pero tampoco eligió distribuidora, no mostramos nada
+  if (!stringBusqueda && !filtroDistriExtra) return [];
 
-  if (stringBusqueda.includes('*')) {
-    const partes = stringBusqueda.split('*');
-    stringBusqueda = partes[0].trim(); 
-    comodinDistri = partes[1].trim();  
+  let busquedaLibre = false;
+  let comodinDistri = filtroDistriExtra.toLowerCase();
+
+  if (stringBusqueda.startsWith('*')) {
+    busquedaLibre = true;
+    stringBusqueda = stringBusqueda.substring(1).trim();
+  }
+
+  const lastAsterisk = stringBusqueda.lastIndexOf('*');
+  if (lastAsterisk !== -1 && !filtroDistriExtra) {
+    comodinDistri = stringBusqueda.substring(lastAsterisk + 1).trim();
+    stringBusqueda = stringBusqueda.substring(0, lastAsterisk).trim();
   }
   
   const textoSanitizado = stringBusqueda.replace(/[^a-z0-9]/g, '');
   const terminos = stringBusqueda.split(/\s+/).filter(Boolean);
   
   const filtrados = cacheCatalogoRAM.filter(item => {
-    // Frontera de hierro de tu estantería (Cubre booleanos puros y strings por las dudas de Supabase)
     const esDeEstanteria = item.en_estanteria === true || item.en_estanteria === 'true'; 
-    
     if (modoFiltro === 'LOCAL' && !esDeEstanteria) return false;
 
     if (comodinDistri) {
@@ -111,18 +102,42 @@ export const buscarArticulosLocal = async (texto, modoFiltro) => {
       if (!distri.includes(comodinDistri)) return false;
     }
 
-    if (terminos.length === 0 && comodinDistri) return true;
+    if (terminos.length === 0) return true;
 
-    // Busca en la RAM ya masticada
-    const matchPalabras = terminos.every(termino => item._busquedaFull.includes(termino));
+    let cumpleCondicion = false;
 
-    const matchCodigoSanitizado = textoSanitizado.length > 2 && (
-      item._originalSanitizado.includes(textoSanitizado) ||
-      item._codSanitizado.includes(textoSanitizado) ||
-      item._auxSanitizado.includes(textoSanitizado)
-    );
+    if (busquedaLibre) {
+      const matchPalabras = terminos.every(t => item._busquedaFull.includes(t));
+      const matchCodigo = textoSanitizado.length > 2 && (
+        item._originalSanitizado.includes(textoSanitizado) ||
+        item._codSanitizado.includes(textoSanitizado) ||
+        item._auxSanitizado.includes(textoSanitizado)
+      );
+      cumpleCondicion = matchPalabras || matchCodigo;
+    } else {
+      const primer = terminos[0];
+      const descLimpia = (item.desc || '').toLowerCase().trim();
+      
+      const empiezaFijo = 
+        item._codSanitizado.startsWith(primer) || 
+        descLimpia.startsWith(primer) || 
+        item._originalSanitizado.startsWith(primer) ||
+        item._auxSanitizado.startsWith(primer);
+        
+      if (empiezaFijo) {
+        const restoTerminos = terminos.slice(1);
+        cumpleCondicion = restoTerminos.every(t => item._busquedaFull.includes(t));
+      } else {
+        if (textoSanitizado.length > 2) {
+          cumpleCondicion = 
+            item._codSanitizado.startsWith(textoSanitizado) ||
+            item._originalSanitizado.startsWith(textoSanitizado) ||
+            item._auxSanitizado.startsWith(textoSanitizado);
+        }
+      }
+    }
 
-    return matchPalabras || matchCodigoSanitizado;
+    return cumpleCondicion;
   });
 
   return filtrados.slice(0, 50); 
@@ -137,16 +152,12 @@ export const obtenerDistribuidoresLocal = async () => {
 export const buscarEquivalenciasLocal = async (codigo_aux) => {
   if (!codigo_aux) return [];
   if (!cacheCatalogoRAM) await precargarCatalogoEnRAM();
-  
-  // Usamos la RAM también para las equivalencias (0 milisegundos)
   return cacheCatalogoRAM.filter(item => item.codigo_aux === codigo_aux);
 };
 
 export const obtenerArticuloLocal = async (cod) => {
   if (!cod) return null;
-  if (cacheCatalogoRAM) {
-    return cacheCatalogoRAM.find(item => item.cod === cod) || null;
-  }
+  if (cacheCatalogoRAM) return cacheCatalogoRAM.find(item => item.cod === cod) || null;
   const db = await initDB();
   return await db.get(STORE_NAME, cod);
 };
@@ -161,7 +172,6 @@ export const actualizarArticuloLocal = async (cod, nuevosDatos) => {
   if (cacheCatalogoRAM) {
     const index = cacheCatalogoRAM.findIndex(i => i.cod === cod);
     if (index !== -1) {
-      // Si actualizamos, pisamos y re-calculamos sus strings
       cacheCatalogoRAM[index] = {
         ...itemActualizado,
         _busquedaFull: `${itemActualizado.cod || ''} ${itemActualizado.desc || ''} ${itemActualizado.marca || ''} ${itemActualizado.codigo_aux || ''} ${itemActualizado.distribuidor || ''} ${itemActualizado.nro_original || ''}`.toLowerCase(),
